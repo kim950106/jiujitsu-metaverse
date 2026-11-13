@@ -1,0 +1,21 @@
+{
+  "name": "jiujitsu-metaverse",
+  "version": "0.3.0",
+  "private": true,
+  "description": "띠를 매고 도장과 대회장을 걸어 다니는 주짓수 메타버스 (비공식 팬 프로젝트)",
+  "type": "module",
+  "scripts": {
+    "build": "sh build.sh",
+    "test": "node test/smoke.mjs && node test/relay.mjs",
+    "test:meet": "node test/meet.mjs"
+  },
+  "devDependencies": {
+    "@fontsource/black-han-sans": "^5.3.0",
+    "@fontsource/ibm-plex-sans-kr": "^5.3.0",
+    "aedes": "^1.2.0",
+    "esbuild": "^0.28.2",
+    "puppeteer-core": "^25.17.0",
+    "three": "^0.128.0",
+    "ws": "^8.23.0"
+  }
+}
