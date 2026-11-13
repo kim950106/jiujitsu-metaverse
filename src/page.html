@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1114">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="띠를 매고 도장과 대회장을 걸어 다니는 주짓수 메타버스. 개인 취미로 만든 비공식 팬 프로젝트입니다.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="주짓수 메타버스">
+<meta property="og:description" content="띠를 매고 도장과 대회장을 걸어 다니는 비공식 팬 프로젝트.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1114'/%3E%3Crect x='8' y='25' width='48' height='13' rx='2' fill='%23f1efe9'/%3E%3Crect x='37' y='25' width='12' height='13' fill='%23111214'/%3E%3Crect x='8' y='47' width='48' height='3' rx='1.5' fill='%23ffd79a'/%3E%3C/svg%3E">
+<meta name="bjj-host" content="claude">
+<meta name="bjj-meet" content="">
+<title>주짓수 메타버스</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&amp;family=IBM+Plex+Sans+KR:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+:root {
+  /* One visual world, kept in a single theme on purpose: the dojo after hours.
+     Black open ceiling, dark rubber tiles, a white mat, and warm LED lines as the only accent.
+     Layout: full-bleed 3D stage. Start screen: one panel docked right (bottom on phones).
+     In play: a thumb stick bottom-left and a fan of round buttons bottom-right, sized from the
+     short side of the screen so the same layout holds on any phone, upright or sideways. */
+  --ink: #0f1114;
+  --panel: #181b20;
+  --line: #2b3038;
+  --mat: #f1efe9;
+  --muted: #9aa0a8;
+  --led: #ffd79a;
+  --on-led: #1b1408;
+  --display: "Black Han Sans", "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { height: 100%; overscroll-behavior: none; }
+body {
+  height: 100%; height: 100dvh; margin: 0;
+  background: var(--ink); color: var(--mat); font-family: var(--body); font-size: 15px; line-height: 1.5;
+  overflow: hidden; overscroll-behavior: none; touch-action: manipulation; -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+:focus-visible { outline: 2px solid var(--led); outline-offset: 3px; }
+[hidden] { display: none !important; }
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; background: var(--ink); }
+
+/* ---------- start screen ---------- */
+.start { position: absolute; inset: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); display: grid; grid-template-columns: minmax(0, 1fr) min(440px, 44vw); pointer-events: none; }
+.brand { padding: clamp(20px, 3.4vw, 44px); align-self: start; max-width: 520px; }
+.eyebrow { margin: 0 0 8px; color: var(--led); font-weight: 500; }
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(44px, 6vw, 84px); line-height: 1.02; margin: 0; word-break: keep-all; }
+.led {
+  height: 3px; margin: 18px 0 14px; width: min(320px, 70%);
+  background: linear-gradient(90deg, var(--led), rgba(255, 215, 154, 0));
+  box-shadow: 0 0 18px rgba(255, 215, 154, .55); transform-origin: left; animation: ledOn .9s ease-out both;
+}
+@keyframes ledOn { from { transform: scaleX(.3); filter: brightness(.6); } to { transform: scaleX(1); filter: brightness(1); } }
+.lede { margin: 0; font-weight: 500; max-width: 40ch; }
+.drag { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.live { margin: 8px 0 0; color: var(--led); font-size: 13px; font-weight: 500; }
+.solo { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.solo a, .card a { color: var(--led); font-weight: 700; text-underline-offset: 3px; }
+
+.panel { pointer-events: auto; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 22px 18px; display: flex; flex-direction: column; gap: 18px; }
+.foot { padding: 12px 22px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+legend { padding: 0; margin-bottom: 10px; font-family: var(--display); font-size: 20px; display: flex; gap: 10px; align-items: baseline; }
+legend .n { font-family: var(--body); font-size: 12px; font-weight: 700; color: var(--led); font-variant-numeric: tabular-nums; letter-spacing: .08em; }
+
+.places { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.place {
+  display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 10px;
+  background: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+}
+.place svg { display: block; width: 100%; height: auto; border-radius: 3px; }
+.place b { font-weight: 700; font-size: 14px; line-height: 1.3; }
+.place small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.place .here { font-style: normal; font-size: 12px; font-weight: 700; color: var(--led); }
+.place[aria-pressed="true"], .gi[aria-pressed="true"] { border-color: var(--led); box-shadow: inset 0 0 0 1px var(--led); }
+
+.belts { display: flex; flex-direction: column; gap: 7px; padding-left: 8px; }
+.belt {
+  position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 40px; padding: 0 112px 0 14px; text-align: left;
+  background: var(--belt); color: var(--on); border: 1px solid rgba(255, 255, 255, .16); border-radius: 2px;
+  transition: transform .15s ease;
+}
+.belt .nm { font-weight: 700; }
+.belt .mt { font-size: 12px; opacity: .85; white-space: nowrap; }
+.belt .bar {
+  position: absolute; right: 30px; top: -1px; bottom: -1px; width: 66px; background: var(--bar);
+  display: flex; gap: 5px; justify-content: center; padding: 0 8px;
+}
+.belt .bar i { width: 6px; }
+.belt .bar i.on { background: #f4f2ec; }
+.belt[aria-pressed="true"] { transform: translateX(-8px); box-shadow: 0 0 0 2px var(--led); }
+.stripes { display: flex; align-items: center; gap: 10px; margin-top: 12px; color: var(--muted); font-size: 13px; }
+.stripes b { min-width: 2ch; text-align: center; color: var(--mat); font-variant-numeric: tabular-nums; }
+.step { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--ink); font-weight: 700; }
+
+.gis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.gi {
+  display: flex; align-items: center; gap: 8px; padding: 11px 10px; font-size: 13px; text-align: left;
+  background: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+}
+.gi i { width: 18px; height: 18px; flex: none; border-radius: 3px; background: var(--c); border: 1px solid rgba(255, 255, 255, .25); }
+
+.name { display: flex; flex-direction: column; gap: 6px; }
+.name input, .field input, .trow input { background: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; width: 100%; min-width: 0; }
+.name small { color: var(--muted); font-size: 12px; }
+.go {
+  padding: 14px 18px; background: var(--led); color: var(--on-led); border: 0; border-radius: 6px;
+  font-family: var(--display); font-size: 22px;
+}
+.warn { margin: 0; color: #ff8a70; font-size: 13px; }
+.okmsg { margin: 0; color: var(--led); font-size: 13px; }
+.fine { margin: 0; color: var(--muted); font-size: 12px; }
+
+/* ---------- in-world HUD ---------- */
+#hud {
+  position: absolute; pointer-events: none;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  --u: clamp(0.78px, calc(min(100vw, 100vh) / 400), 1.15px);
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+#hud button, #hud .menu { pointer-events: auto; }
+.hud-top { position: absolute; left: 12px; right: 12px; top: 10px; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.where { background: rgba(15, 17, 20, .8); border-left: 3px solid var(--led); padding: 6px 12px; display: flex; flex-direction: column; min-width: 0; max-width: 440px; }
+.where strong { font-family: var(--display); font-weight: 400; font-size: 17px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.where span { color: var(--led); font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-tools { display: flex; gap: 6px; flex: none; }
+.tool { min-width: 44px; height: 44px; padding: 0 12px; white-space: nowrap; background: rgba(15, 17, 20, .8); border: 1px solid var(--line); border-radius: 6px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #6b7078; }
+.dot[data-s="on"] { background: #58d68d; }
+.dot[data-s="wait"] { background: var(--led); }
+.camrow { position: absolute; right: 12px; top: 62px; display: flex; gap: 6px; }
+.cb { width: 40px; height: 40px; background: rgba(15, 17, 20, .72); border: 1px solid var(--line); border-radius: 50%; font-weight: 700; font-size: 17px; line-height: 1; touch-action: none; }
+.menu {
+  position: absolute; right: 12px; top: 60px; width: min(250px, calc(100% - 24px)); max-height: calc(100% - 72px); overflow-y: auto; z-index: 6;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.menu button { text-align: left; padding: 11px 12px; background: transparent; border: 0; border-radius: 5px; }
+.menu button:hover { background: var(--ink); }
+#toasts { position: absolute; left: 50%; top: 62px; transform: translateX(-50%); width: min(calc(100% - 210px), 560px); min-width: min(100% - 24px, 250px); display: flex; flex-direction: column; gap: 6px; align-items: center; z-index: 3; }
+.toast {
+  background: rgba(15, 17, 20, .92); border: 1px solid var(--line); border-bottom: 2px solid var(--led);
+  padding: 8px 14px; border-radius: 4px; text-align: center; font-weight: 500; animation: toastIn .2s ease-out;
+}
+@keyframes toastIn { from { transform: translateY(-6px); opacity: .4; } to { transform: none; opacity: 1; } }
+
+/* thumb stick */
+.stick-zone { position: absolute; left: 0; bottom: 0; width: 48%; height: 58%; pointer-events: auto; touch-action: none; }
+.stick {
+  position: absolute; left: calc(82 * var(--u)); bottom: calc(82 * var(--u)); width: calc(132 * var(--u)); height: calc(132 * var(--u));
+  transform: translate(-50%, 50%); border-radius: 50%; border: 2px solid rgba(255, 215, 154, .42); background: rgba(15, 17, 20, .34);
+}
+.stick.float { bottom: auto; transform: translate(-50%, -50%); border-color: rgba(255, 215, 154, .8); }
+.stick i {
+  position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; margin: -21% 0 0 -21%; border-radius: 50%;
+  background: rgba(255, 215, 154, .78); will-change: transform;
+}
+.stick.run { border-color: #fff; }
+.stick.run i { background: #fff; }
+
+/* action buttons: one big button in the corner, the rest fanned around it */
+.pad { position: absolute; right: calc(12 * var(--u)); bottom: calc(12 * var(--u)); width: calc(216 * var(--u)); height: calc(216 * var(--u)); }
+.pb {
+  position: absolute; width: calc(58 * var(--u)); height: calc(58 * var(--u)); padding: 0; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(15, 17, 20, .76); border: 2px solid rgba(255, 255, 255, .26); color: var(--mat);
+  font-weight: 700; font-size: max(11px, calc(13.5 * var(--u))); line-height: 1.12; text-align: center; touch-action: none;
+}
+.pb:active { transform: scale(.93); background: rgba(40, 44, 52, .9); }
+.pb kbd { display: none; font: 700 10px var(--body); color: var(--led); margin-top: 1px; }
+.pb.sm { width: calc(52 * var(--u)); height: calc(52 * var(--u)); font-size: max(10.5px, calc(12.5 * var(--u))); }
+.pb.main {
+  right: 0; bottom: 0; width: calc(84 * var(--u)); height: calc(84 * var(--u)); font-size: max(13px, calc(17 * var(--u)));
+  border-color: var(--led); color: var(--led);
+}
+.pb.main.hot { background: var(--led); color: var(--on-led); }
+.pb.off { opacity: .5; }
+.pb.sk { border-color: rgba(255, 215, 154, .55); }
+.pb.sk.ready { background: #3a2c12; border-color: var(--led); color: var(--led); box-shadow: 0 0 0 calc(4 * var(--u)) rgba(255, 215, 154, .22); }
+.pb[data-act="ankle"] { right: calc(110.8 * var(--u)); bottom: calc(19.8 * var(--u)); }
+.pb[data-act="arm"] { right: calc(79.8 * var(--u)); bottom: calc(84.7 * var(--u)); }
+.pb[data-act="roll"] { right: calc(13 * var(--u)); bottom: calc(111 * var(--u)); }
+.pb[data-act="shrimp"] { right: calc(159.8 * var(--u)); bottom: calc(99 * var(--u)); }
+.pb[data-act="sit"] { right: calc(93.9 * var(--u)); bottom: calc(162.6 * var(--u)); }
+.chip {
+  position: absolute; right: 0; bottom: calc(222 * var(--u)); max-width: calc(100vw - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--led); color: var(--on-led); border: 0; border-radius: 999px; padding: 7px 14px; font-weight: 700; font-size: 13px;
+}
+#hint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); margin: 0; width: max-content; max-width: calc(100% - 560px); color: var(--muted); font-size: 12px; text-align: center; text-shadow: 0 1px 2px #000; display: none; }
+
+/* rock-paper-scissors */
+.rps {
+  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: min(340px, calc(100% - 24px)); z-index: 4; pointer-events: auto;
+  background: rgba(24, 27, 32, .96); border: 1px solid var(--line); border-top: 3px solid var(--led); border-radius: 10px;
+  padding: 14px; display: flex; flex-direction: column; gap: 10px; text-align: center;
+}
+.rps p { margin: 0; }
+.rps-title { font-family: var(--display); font-size: 20px; line-height: 1.25; }
+.hands { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.hand { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; background: var(--ink); border: 2px solid var(--line); border-radius: 10px; font-weight: 700; touch-action: none; }
+.hand i { font-style: normal; font-size: 36px; line-height: 1.15; }
+.hand[aria-pressed="true"] { border-color: var(--led); background: #2a2417; }
+.versus { display: flex; justify-content: center; align-items: center; gap: 16px; font-size: 46px; line-height: 1.1; }
+.versus b { font-size: 15px; color: var(--muted); }
+.versus small { display: block; font-size: 12px; color: var(--muted); }
+.tbar { height: 5px; background: var(--ink); border-radius: 3px; overflow: hidden; }
+.tbar i { display: block; height: 100%; background: var(--led); transform-origin: left; }
+.rps-status { font-weight: 500; }
+.mini { align-self: center; padding: 8px 14px; background: transparent; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; font-weight: 700; }
+
+/* ---------- dialogs ---------- */
+.modal { position: absolute; inset: 0; z-index: 8; background: rgba(8, 9, 11, .68); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--led); border-radius: 8px;
+  padding: 20px; width: min(580px, 100%); max-height: 100%; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 14px;
+}
+.card h2 { font-family: var(--display); font-weight: 400; font-size: 26px; margin: 0; }
+.card p { margin: 0; max-width: 62ch; }
+.card .sub { color: var(--muted); font-size: 13px; }
+.tag { align-self: flex-start; background: #3a2c12; color: var(--led); border: 1px solid var(--led); border-radius: 999px; padding: 2px 12px; font-size: 12px; font-weight: 700; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+.sw { display: inline-block; width: 26px; height: 10px; margin-right: 8px; vertical-align: middle; border: 1px solid rgba(255, 255, 255, .2); }
+.close { align-self: flex-end; padding: 10px 18px; background: var(--ink); border: 1px solid var(--line); border-radius: 6px; font-weight: 700; }
+.rowbtn { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+.rowbtn .mini, .rowbtn .close { align-self: auto; }
+.asks { display: flex; flex-direction: column; gap: 8px; }
+.ask { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 13px 14px; background: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
+.ask b { font-size: 16px; }
+.ask small { color: var(--muted); font-size: 12.5px; }
+.ask:hover { border-color: var(--led); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-weight: 700; font-size: 13px; }
+form.stack { display: flex; flex-direction: column; gap: 12px; }
+.send { padding: 11px 18px; background: var(--led); color: var(--on-led); border: 0; border-radius: 6px; font-weight: 700; }
+.trow { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 6px; margin-bottom: 6px; }
+.trow input { padding: 9px 8px; }
+.slot { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; align-items: center; padding: 12px; background: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+.slot .thumb { width: 72px; height: 72px; background: #f4f2ec; border-radius: 4px; display: grid; place-items: center; overflow: hidden; color: #6b7078; font-size: 11px; text-align: center; }
+.slot .thumb img { max-width: 100%; max-height: 100%; }
+.slot .thumb img:not([hidden]) + span { display: none; }
+.slot .ctl { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.slot label { font-weight: 700; }
+.slot input[type="file"] { max-width: 100%; font-size: 13px; }
+.slot .clear { align-self: flex-start; padding: 5px 10px; background: transparent; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; }
+.keys { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+.keys dt { color: var(--led); font-weight: 700; white-space: nowrap; }
+.keys dd { margin: 0; }
+.who { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.who li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+.who li span { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+.invite { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; }
+.invite p { font-size: 13.5px; }
+.invite .rowbtn { justify-content: flex-start; }
+.invite .mini { min-height: 40px; }
+
+@media (max-width: 819px) {
+  .start { grid-template-columns: 1fr; grid-template-rows: minmax(150px, 34%) 1fr; }
+  .brand { padding: 16px 18px; max-width: 58%; }
+  h1 { font-size: clamp(30px, 9vw, 48px); }
+  .led { margin: 10px 0 8px; }
+  .lede { font-size: 12.5px; }
+  .drag { display: none; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; }
+  .scroll { padding: 16px 16px 14px; }
+  .foot { padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .go { font-size: 20px; padding: 12px 16px; }
+  .where strong { font-size: 15px; }
+  #toasts { top: 108px; width: calc(100% - 24px); }
+  .toast { font-size: 13.5px; }
+}
+/* a phone held sideways: keep the two-column start screen and tighten the HUD */
+@media (max-height: 480px) and (orientation: landscape) {
+  .start { grid-template-columns: minmax(0, 1fr) min(390px, 54vw); grid-template-rows: 1fr; }
+  .brand { padding: 14px 18px; max-width: none; }
+  h1 { font-size: clamp(28px, 7vh, 44px); }
+  .panel { border-top: 0; border-left: 1px solid var(--line); border-radius: 0; }
+  .where strong { font-size: 14px; }
+  .where span { font-size: 12px; }
+  .camrow { top: 58px; }
+  #toasts { top: 10px; width: min(calc(100% - 420px), 460px); }
+  .toast { font-size: 13px; padding: 6px 12px; }
+  .rps { top: 50%; padding: 10px; gap: 8px; }
+  .hand i { font-size: 30px; }
+  .card { padding: 14px; gap: 10px; }
+}
+@media (max-width: 480px) {
+  .card { padding: 16px; }
+  #modal-list th:first-child, #modal-list td:first-child { display: none; }
+  th, td { padding-right: 6px; font-size: 13px; }
+}
+@media (pointer: coarse) {
+  input { font-size: 16px; }
+}
+@media (hover: hover) and (pointer: fine) {
+  .stick-zone { display: none; }
+  .pb kbd { display: block; }
+  #hint { display: block; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="3D 장면"></canvas>
+
+<main id="start" class="start">
+  <header class="brand">
+    <p class="eyebrow">띠를 매고 걸어 들어가는</p>
+    <h1>주짓수<br>메타버스</h1>
+    <div class="led" aria-hidden="true"></div>
+    <p class="lede" id="summary">흰 띠 0그랄 · 흰색 도복 · 성인부 경기 5분</p>
+    <p class="drag">캐릭터를 좌우로 끌면 돌려 볼 수 있습니다.</p>
+    <p class="live" id="live" hidden></p>
+    <p class="solo" id="solo" hidden><span id="solo-text"></span> <a id="solo-link" target="_blank" rel="noopener" hidden>함께 접속하는 주소 열기</a></p>
+  </header>
+
+  <form id="setup" class="panel" novalidate>
+    <div class="scroll">
+    <fieldset>
+      <legend><span class="n">01</span>장소</legend>
+      <div class="places">
+        <button type="button" class="place" data-place="gym" aria-pressed="true">
+          <svg viewBox="0 0 120 58" aria-hidden="true">
+            <rect width="120" height="58" fill="#3d4043"/>
+            <rect x="5" y="5" width="68" height="30" fill="#eeece6"/>
+            <rect x="76" y="5" width="2" height="24" fill="#111214"/>
+            <rect x="82" y="5" width="22" height="7" fill="#1c1c1e"/>
+            <rect x="104" y="5" width="12" height="20" fill="#4a3626"/>
+            <rect x="84" y="42" width="24" height="6" fill="#9a4a35"/>
+            <rect x="5" y="52" width="110" height="1.5" fill="#ffd79a"/>
+          </svg>
+          <b>전주 퍼스트짐 도청점</b>
+          <small>우리 도장. 관장님께 시간표와 대회 신청을 물어볼 수 있습니다</small>
+          <em class="here" data-here="gym" hidden></em>
+        </button>
+        <button type="button" class="place" data-place="arena" aria-pressed="false">
+          <svg viewBox="0 0 120 58" aria-hidden="true">
+            <rect width="120" height="58" fill="#d2b182"/>
+            <rect x="4" y="9" width="12" height="40" fill="#5a7896"/>
+            <rect x="34" y="15" width="26" height="28" fill="#2a5cab"/><rect x="64" y="15" width="26" height="28" fill="#2a5cab"/>
+            <rect x="37" y="18" width="20" height="22" fill="#f0c22e"/><rect x="67" y="18" width="20" height="22" fill="#f0c22e"/>
+            <rect x="106" y="22" width="10" height="14" fill="#8c1f28"/>
+          </svg>
+          <b>치바 포트 아레나</b>
+          <small>아시아 선수권 대회장. 관중, 빈 매트 2면, 몸 푸는 곳, 시상대</small>
+          <em class="here" data-here="arena" hidden></em>
+        </button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend><span class="n">02</span>띠</legend>
+      <div class="belts">
+        <button type="button" class="belt" data-belt="white" aria-pressed="true" style="--belt:#e9e6dc;--on:#1b1c1f;--bar:#141414"><span class="nm">흰 띠</span><span class="mt">경기 5분</span><span class="bar" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+        <button type="button" class="belt" data-belt="blue" aria-pressed="false" style="--belt:#2a62d4;--on:#ffffff;--bar:#141414"><span class="nm">파란 띠</span><span class="mt">경기 6분</span><span class="bar" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+        <button type="button" class="belt" data-belt="purple" aria-pressed="false" style="--belt:#6a3fa3;--on:#ffffff;--bar:#141414"><span class="nm">보라 띠</span><span class="mt">경기 7분</span><span class="bar" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+        <button type="button" class="belt" data-belt="brown" aria-pressed="false" style="--belt:#6b4426;--on:#ffffff;--bar:#141414"><span class="nm">갈색 띠</span><span class="mt">경기 8분</span><span class="bar" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+        <button type="button" class="belt" data-belt="black" aria-pressed="false" style="--belt:#161616;--on:#ffffff;--bar:#c62828"><span class="nm">검은 띠</span><span class="mt">경기 10분 · 지도자석 가능</span><span class="bar" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+      </div>
+      <div class="stripes">
+        <span id="stripes-label">그랄(줄)</span>
+        <button type="button" class="step" id="stripes-minus" aria-label="그랄 줄이기">−</button>
+        <b id="stripes-val" aria-live="polite" aria-labelledby="stripes-label">0</b>
+        <button type="button" class="step" id="stripes-plus" aria-label="그랄 늘리기">+</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend><span class="n">03</span>도복</legend>
+      <div class="gis">
+        <button type="button" class="gi" data-gi="white" aria-pressed="true" style="--c:#f3f2ee"><i></i>흰색</button>
+        <button type="button" class="gi" data-gi="blue" aria-pressed="false" style="--c:#2148b5"><i></i>로열 블루</button>
+        <button type="button" class="gi" data-gi="black" aria-pressed="false" style="--c:#1d1e22"><i></i>검정</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend><span class="n">04</span>이름</legend>
+      <div class="name">
+        <input id="nick" type="text" maxlength="12" autocomplete="off" placeholder="머리 위와 도복 등판에 표시됩니다" aria-label="이름">
+        <small>함께 접속한 사람에게 이 이름이 보입니다. 비워 두면 ‘수련생’으로 나옵니다.</small>
+      </div>
+    </fieldset>
+
+    </div>
+    <div class="foot">
+      <button id="enter" type="submit" class="go">도장으로 입장</button>
+      <p id="nogl" class="warn" hidden>이 브라우저에서는 3D 화면을 표시할 수 없습니다. WebGL을 지원하는 브라우저로 열어 주세요.</p>
+      <p class="fine">개인 취미로 만든 비공식 팬 프로젝트입니다. 퍼스트짐, IBJJF, 경기장 운영 측과 관계가 없습니다.</p>
+    </div>
+  </form>
+</main>
+
+<div id="hud" hidden>
+  <div class="hud-top">
+    <div class="where"><strong id="place-name"></strong><span id="zone"></span></div>
+    <div class="hud-tools">
+      <button type="button" class="tool" id="people-btn" aria-label="접속한 사람 보기"><span class="dot" id="net-dot" aria-hidden="true"></span><span><span id="people-n">1</span>명</span></button>
+      <button type="button" class="tool" id="menu-btn" aria-expanded="false" aria-controls="menu">메뉴</button>
+    </div>
+  </div>
+  <div class="camrow" role="group" aria-label="시점">
+    <button type="button" class="cb" id="cam-l" aria-label="시점을 왼쪽으로 돌리기">⟲</button>
+    <button type="button" class="cb" id="cam-r" aria-label="시점을 오른쪽으로 돌리기">⟳</button>
+    <button type="button" class="cb" id="zoom-in" aria-label="시점 가까이">＋</button>
+    <button type="button" class="cb" id="zoom-out" aria-label="시점 멀리">－</button>
+  </div>
+  <div id="menu" class="menu" hidden>
+    <button type="button" id="m-place">대회장으로 이동</button>
+    <button type="button" id="m-look">띠 · 도복 바꾸기</button>
+    <button type="button" id="m-people">함께 접속한 사람</button>
+    <button type="button" id="m-belt">띠 체계 보기</button>
+    <button type="button" id="m-logo">로고 이미지 넣기</button>
+    <button type="button" id="m-full" hidden>전체 화면</button>
+    <button type="button" id="m-sound">소리 끄기</button>
+    <button type="button" id="m-help">조작법</button>
+    <button type="button" id="m-close">메뉴 닫기</button>
+  </div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <div id="rps" class="rps" role="dialog" aria-labelledby="rps-title" hidden>
+    <p class="rps-title" id="rps-title"></p>
+    <div class="hands" id="rps-hands">
+      <button type="button" class="hand" data-hand="s" aria-pressed="false"><i aria-hidden="true">✌️</i>가위</button>
+      <button type="button" class="hand" data-hand="r" aria-pressed="false"><i aria-hidden="true">✊</i>바위</button>
+      <button type="button" class="hand" data-hand="p" aria-pressed="false"><i aria-hidden="true">✋</i>보</button>
+    </div>
+    <div class="versus" id="rps-versus" hidden><span><span id="rps-me"></span><small>나</small></span><b>vs</b><span><span id="rps-them"></span><small>상대</small></span></div>
+    <div class="tbar" id="rps-barwrap" aria-hidden="true"><i id="rps-bar"></i></div>
+    <p class="rps-status" id="rps-status" aria-live="polite"></p>
+    <button type="button" class="mini" id="rps-cancel">그만두기</button>
+  </div>
+
+  <div id="stick-zone" class="stick-zone" aria-hidden="true"><div id="stick" class="stick"><i></i></div></div>
+  <div class="pad" role="group" aria-label="동작">
+    <button type="button" class="chip" id="chip" hidden></button>
+    <button type="button" class="pb main" id="b-main">인사</button>
+    <button type="button" class="pb sk" data-act="ankle" aria-label="앵클락 걸기">앵클락<kbd>Q</kbd></button>
+    <button type="button" class="pb sk" data-act="arm" aria-label="암바 걸기">암바<kbd>R</kbd></button>
+    <button type="button" class="pb" data-act="roll" aria-label="앞구르기">구르기<kbd>4</kbd></button>
+    <button type="button" class="pb sm" data-act="shrimp" aria-label="새우빼기">새우<br>빼기<kbd>3</kbd></button>
+    <button type="button" class="pb sm" data-act="sit" aria-label="정좌">정좌<kbd>2</kbd></button>
+  </div>
+  <p id="hint">WASD 이동 · Shift 달리기 · 드래그 시점 · 휠 확대 · E 큰 버튼</p>
+</div>
+
+<div class="modal" id="modal-belt" role="dialog" aria-modal="true" aria-labelledby="t-belt" hidden>
+  <div class="card">
+    <h2 id="t-belt">띠 체계</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>띠</th><th>받을 수 있는 나이</th><th>다음 띠까지 최소 기간</th><th>성인부 경기</th></tr></thead>
+        <tbody>
+          <tr><td><span class="sw" style="background:#e9e6dc"></span>흰 띠</td><td>제한 없음</td><td>제한 없음</td><td>5분</td></tr>
+          <tr><td><span class="sw" style="background:#2a62d4"></span>파란 띠</td><td>16세부터</td><td>2년</td><td>6분</td></tr>
+          <tr><td><span class="sw" style="background:#6a3fa3"></span>보라 띠</td><td>16세부터</td><td>1년 6개월</td><td>7분</td></tr>
+          <tr><td><span class="sw" style="background:#6b4426"></span>갈색 띠</td><td>18세부터</td><td>1년</td><td>8분</td></tr>
+          <tr><td><span class="sw" style="background:#161616"></span>검은 띠</td><td>19세부터</td><td>3년 뒤 1단</td><td>10분</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>IBJJF 기준입니다. 띠 끝의 바에 감는 그랄(줄)은 보통 네 개까지이고, 검은 띠는 바가 빨간색입니다. 띠를 주는 사람은 연맹이 아니라 소속 도장의 지도자입니다.</p>
+    <p class="sub">점수: 테이크다운 · 스윕 · 니온벨리 2점, 가드 패스 3점, 마운트 · 백 4점. 포지션을 3초 유지해야 인정됩니다.</p>
+    <button type="button" class="close" data-close>닫기</button>
+  </div>
+</div>
+
+<div class="modal" id="modal-master" role="dialog" aria-modal="true" aria-labelledby="t-master" hidden>
+  <div class="card">
+    <h2 id="t-master">관장님</h2>
+    <p>“무엇이 궁금한가요?”</p>
+    <div class="asks">
+      <button type="button" class="ask" id="ask-time"><b>도청점 시간표</b><small>요일별 수업 시간</small></button>
+      <button type="button" class="ask" id="ask-apply"><b>2027 IBJJF 신청하기</b><small>도장 참가 희망자 접수 · 대회 일정은 준비 중</small></button>
+      <button type="button" class="ask" id="ask-list"><b>신청자 리스트 보기</b><small>지금까지 신청한 사람</small></button>
+    </div>
+    <button type="button" class="close" data-close>닫기</button>
+  </div>
+</div>
+
+<div class="modal" id="modal-time" role="dialog" aria-modal="true" aria-labelledby="t-time" hidden>
+  <div class="card">
+    <h2 id="t-time">도청점 시간표</h2>
+    <p class="sub" id="time-state">불러오는 중…</p>
+    <div class="tablewrap" id="time-view" hidden>
+      <table>
+        <thead><tr><th>요일</th><th>시간</th><th>수업</th></tr></thead>
+        <tbody id="time-rows"></tbody>
+      </table>
+    </div>
+    <p id="time-note" hidden></p>
+    <form id="time-edit" class="stack" novalidate hidden>
+      <div id="time-inputs"></div>
+      <button type="button" class="mini" id="time-add">줄 추가</button>
+      <div class="field"><label for="time-memo">메모</label><input id="time-memo" type="text" maxlength="120" placeholder="예: 공휴일 휴관, 토요일 오픈매트"></div>
+      <div class="rowbtn"><button type="button" class="mini" id="time-cancel">취소</button><button type="submit" class="send" id="time-save">저장</button></div>
+    </form>
+    <div class="rowbtn"><button type="button" class="mini" id="time-editbtn" hidden>시간표 수정</button><button type="button" class="close" data-close>닫기</button></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-apply" role="dialog" aria-modal="true" aria-labelledby="t-apply" hidden>
+  <div class="card">
+    <h2 id="t-apply">2027 IBJJF 신청하기</h2>
+    <span class="tag">대회 일정 준비 중</span>
+    <p>도장에서 함께 나갈 사람을 미리 모으는 명단입니다. IBJJF 공식 접수가 아니며, 대회 등록은 일정이 나온 뒤 따로 해야 합니다.</p>
+    <form id="apply-form" class="stack" novalidate>
+      <div class="field"><label for="apply-name">이름</label><input id="apply-name" type="text" maxlength="20" autocomplete="name"></div>
+      <div class="field"><label for="apply-tel">연락처</label><input id="apply-tel" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="010-1234-5678"></div>
+      <p class="sub">이름과 띠는 신청자 리스트에서 이 페이지를 연 사람 모두에게 보입니다. 연락처는 이 페이지의 관리자에게만 보입니다.</p>
+      <p id="apply-msg" class="okmsg" aria-live="polite" hidden></p>
+      <div class="rowbtn"><button type="button" class="mini" id="apply-drop" hidden>신청 취소</button><button type="submit" class="send" id="apply-send">신청하기</button></div>
+    </form>
+    <div class="rowbtn"><button type="button" class="mini" id="apply-list">신청자 리스트 보기</button><button type="button" class="close" data-close>닫기</button></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-list" role="dialog" aria-modal="true" aria-labelledby="t-list" hidden>
+  <div class="card">
+    <h2 id="t-list">2027 IBJJF 신청자</h2>
+    <p class="sub" id="list-state">불러오는 중…</p>
+    <div class="tablewrap" id="list-view" hidden>
+      <table>
+        <thead><tr><th>번호</th><th>이름</th><th>띠</th><th>신청일</th><th id="list-telh" hidden>연락처</th><th id="list-delh" hidden><span class="sub">관리</span></th></tr></thead>
+        <tbody id="list-rows"></tbody>
+      </table>
+    </div>
+    <p class="sub" id="list-note"></p>
+    <div class="rowbtn"><button type="button" class="mini" id="list-apply">신청하기</button><button type="button" class="close" data-close>닫기</button></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-people" role="dialog" aria-modal="true" aria-labelledby="t-people" hidden>
+  <div class="card">
+    <h2 id="t-people">함께 접속한 사람</h2>
+    <p id="people-state"></p>
+    <ul class="who" id="people-list"></ul>
+    <div class="invite" id="invite" hidden>
+      <p>친구에게 이 주소를 보내면 같은 곳에서 만납니다. 서로 같은 장소(도장 또는 대회장)에 들어가야 보입니다.</p>
+      <div class="rowbtn"><button type="button" class="mini" id="inv-share" hidden>주소 보내기</button><button type="button" class="mini" id="inv-copy">주소 복사</button></div>
+    </div>
+    <p id="people-meet" hidden>친구와 만나려면 함께 접속하는 주소로 들어가야 합니다. <a id="meet-link" target="_blank" rel="noopener">함께 접속하는 주소 열기</a></p>
+    <p class="sub" id="people-note"></p>
+    <button type="button" class="close" data-close>닫기</button>
+  </div>
+</div>
+
+<div class="modal" id="modal-logo" role="dialog" aria-modal="true" aria-labelledby="t-logo" hidden>
+  <div class="card">
+    <h2 id="t-logo">로고 이미지 넣기</h2>
+    <p>가지고 있는 로고 파일을 고르면 맵 안의 배너 자리에 바로 들어갑니다. 이미지는 이 브라우저에만 저장됩니다.</p>
+    <div class="slot">
+      <div class="thumb"><img id="logo-gym-prev" alt="도장 로고 미리보기" hidden><span>도장</span></div>
+      <div class="ctl">
+        <label for="logo-gym">도장 로고</label>
+        <span class="sub">도장 벽 배너 2곳, 도복 등판</span>
+        <input id="logo-gym" type="file" accept="image/*">
+        <button type="button" class="clear" id="logo-gym-clear" hidden>도장 로고 빼기</button>
+      </div>
+    </div>
+    <div class="slot">
+      <div class="thumb"><img id="logo-event-prev" alt="대회 로고 미리보기" hidden><span>대회</span></div>
+      <div class="ctl">
+        <label for="logo-event">대회 로고</label>
+        <span class="sub">대회장 배너, 중앙 전광판, 시상대 배경</span>
+        <input id="logo-event" type="file" accept="image/*">
+        <button type="button" class="clear" id="logo-event-clear" hidden>대회 로고 빼기</button>
+      </div>
+    </div>
+    <button type="button" class="close" data-close>닫기</button>
+  </div>
+</div>
+
+<div class="modal" id="modal-help" role="dialog" aria-modal="true" aria-labelledby="t-help" hidden>
+  <div class="card">
+    <h2 id="t-help">조작법</h2>
+    <dl class="keys">
+      <dt>이동</dt><dd>왼쪽 아래 스틱. 끝까지 밀면 달립니다. 키보드는 W A S D, Shift로 달리기.</dd>
+      <dt>시점</dt><dd>오른쪽 위 ⟲ ⟳ ＋ － 버튼, 또는 화면을 끌거나 두 손가락으로 벌리고 오므립니다.</dd>
+      <dt>큰 버튼</dt><dd>평소에는 인사. 관장님이나 안내판 앞에서는 그 자리에서 할 수 있는 일로 바뀝니다. 키보드 E.</dd>
+      <dt>기술</dt><dd>매트 위에서 상대에게 붙으면 앵클락과 암바 버튼이 켜집니다. 누르면 가위바위보를 하고, 이긴 쪽이 상대를 넘어뜨려 그 기술을 겁니다. 키보드 Q, R.</dd>
+      <dt>드릴</dt><dd>구르기, 새우빼기는 매트 위에서만. 정좌는 어디서나. 키보드 4, 3, 2.</dd>
+      <dt>지도자석</dt><dd>대회장 매트 옆 COACH 자리는 검은 띠 1명만 앉을 수 있습니다.</dd>
+      <dt>시상대</dt><dd>1 · 2 · 3위 자리에 올라서면 금 · 은 · 동메달이 걸립니다.</dd>
+    </dl>
+    <button type="button" class="close" data-close>닫기</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
