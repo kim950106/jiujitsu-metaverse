@@ -12,7 +12,10 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 const out = path.join(root, 'shots');
 fs.mkdirSync(out, { recursive: true });
 
-const brokers = [await startBroker(), await startBroker()];
+// MEET_DELAY=300 node test/meet.mjs runs the whole visit with a realistic network delay on every message
+const delay = Number(process.env.MEET_DELAY) || 0;
+const brokers = [await startBroker(0, { delay }), await startBroker(0, { delay })];
+if (delay) console.log(`every message is held back ${delay} ms, as through a distant relay`);
 const relay = encodeURIComponent(brokers.map((b) => b.url).join(','));
 
 const types = { '.html': 'text/html; charset=utf-8', '.woff2': 'font/woff2' };

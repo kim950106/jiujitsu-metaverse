@@ -3,8 +3,11 @@ import http from 'node:http';
 import { Aedes } from 'aedes';
 import { WebSocketServer, createWebSocketStream } from 'ws';
 
-export async function startBroker(port = 0) {
+// delay (ms) holds every published message back before it is passed on, to stand in for the
+// distance to a real public relay (about 0.25 to 0.3 s one way from Korea, measured 2026-11-14).
+export async function startBroker(port = 0, { delay = 0 } = {}) {
   const aedes = await Aedes.createBroker();
+  if (delay > 0) aedes.authorizePublish = (client, packet, cb) => { setTimeout(() => cb(null), delay); };
   const stats = { pub: [], errors: [], clients: 0 };
   aedes.on('publish', (packet, client) => {
     if (client) stats.pub.push({ topic: packet.topic, from: client.id, bytes: packet.payload.length, at: Date.now() });

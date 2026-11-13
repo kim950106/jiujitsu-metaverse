@@ -315,6 +315,16 @@ ok('after a long sleep the connections are rebuilt', `${ms} ms`);
   await b[2].inject(`${base}/hb/ffffffffff`, good(9)); // a late copy of an older message
   await sleep(200);
   assert.ok(!A.others.has('ffffffffff'), 'late copy after goodbye ignored');
+  // a goodbye that overtakes the person's own earlier message (through a faster relay) leaves no ghost
+  await b[0].inject(`${base}/hb/iiiiiiiiii`, JSON.stringify({ q: 5, bye: 1 }));
+  await sleep(100);
+  await b[2].inject(`${base}/hb/iiiiiiiiii`, good(3));
+  await sleep(200);
+  assert.ok(!A.others.has('iiiiiiiiii'), 'no ghost from a message older than the goodbye');
+  await b[2].inject(`${base}/hb/iiiiiiiiii`, good(6)); // they came back
+  await until(() => A.others.has('iiiiiiiiii'), 1000, 'a newer message brings them back');
+  await b[0].inject(`${base}/hb/iiiiiiiiii`, JSON.stringify({ q: 7, bye: 1 }));
+  await until(() => !A.others.has('iiiiiiiiii'), 1000, 'and they can leave again');
   ok('malformed, oversize, stored and stale messages are ignored without losing a connection');
 
   // flooding from one sender
