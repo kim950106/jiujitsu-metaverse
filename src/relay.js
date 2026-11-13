@@ -574,8 +574,8 @@ export class Relay {
     if (!m || typeof m !== 'object') return;
     let p = this.others.get(id);
     if (m.bye) {
-      if (!p) return;
       if (m.bye === 2) {
+        if (!p) return;
         // Sent by a relay on the person's behalf: that one connection was lost. It can also be an
         // old connection of someone who has long since reconnected (some relays only notice a
         // closed socket when its keep-alive runs out), so it never removes anyone by itself: it
@@ -585,10 +585,14 @@ export class Relay {
         if (!p.mask) p.until = Math.min(p.until, now + WILL_GRACE);
         return;
       }
-      if (typeof m.q !== 'number' || m.q < p.q) return;
-      this.others.delete(id);
-      this.gone.set(id, { q: m.q, at: now });
-      this._fire([{ peer: id }]);
+      if (typeof m.q !== 'number' || !Number.isFinite(m.q) || (p && m.q < p.q)) return;
+      // Remembered even when nobody by that id is listed: an earlier message of theirs may still
+      // be on its way through a slower relay, and must not bring them back as a ghost.
+      if (p || this.gone.size < 200) this.gone.set(id, { q: m.q, at: now });
+      if (p) {
+        this.others.delete(id);
+        this._fire([{ peer: id }]);
+      }
       return;
     }
     const q = m.q;
