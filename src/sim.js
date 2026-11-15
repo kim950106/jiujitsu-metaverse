@@ -1,19 +1,17 @@
 // Game logic with no rendering or DOM: player movement, collisions, actions, zones, NPC updates,
 // rock-paper-scissors duels and the two-person techniques that follow them.
-import { BELTS, turnToward, clamp } from './util.js';
-import { Character, SHRIMP, ROLL, BOW, TECH, GREET, SHAKA, BRIDGE, STANDUP } from './character.js';
-import { Bout, KINDS, KIND_OBJ, KIND_SUBJ, SAYS, MARGIN, rpsResult, randomPick, isKind } from './tech.js';
-import { MatchMixin, posCode } from './match.js';
+import { BELTS, turnToward } from './util.js';
+import { Character, SHRIMP, ROLL, ROLLB, SCOOT, BOW, TECH, GREET, SHAKA, BRIDGE, STANDUP } from './character.js';
+import { KINDS, SAYS, randomPick, isKind } from './tech.js';
+import { SparMixin, SPAR, ruleFor } from './spar.js';
 import { RaceMixin } from './race.js';
 
 const STEP = 0.72; // highest ledge the player can step onto
 const HEIGHT = 1.75;
 const R = 0.3;
-const REACH = 1.7; // how close a partner must be to start a technique
-const PICK_TIME = 7; // seconds to choose a hand before one is chosen at random
-const GAP = 0.55; // each fighter stands this far from the midpoint during the duel
-const SOLO = new Set(['bow', 'sit', 'shrimp', 'roll', 'shaka', 'bridge', 'standup']); // what doAction accepts
-const ON_MAT = new Set(['shrimp', 'roll', 'bridge', 'standup']); // drills that need a mat under them
+const REACH = 1.7; // how close a partner must be to start sparring
+const SOLO = new Set(['bow', 'sit', 'shrimp', 'roll', 'rollb', 'scoot', 'shaka', 'bridge', 'standup']); // what doAction accepts
+const ON_MAT = new Set(['shrimp', 'roll', 'rollb', 'scoot', 'bridge', 'standup']); // drills that need a mat under them
 
 export class Sim {
   constructor(hooks = {}) {
@@ -33,10 +31,10 @@ export class Sim {
     this.peers = () => []; // avatars of other people in this place (set by the network layer)
     this.myPeer = '';
     this.npcPick = () => randomPick();
-    // how many times an NPC hammers during the struggle of a technique: as the one held it tries a
-    // little (so a hold nobody tightens is sometimes lost), as the one holding somewhat more
-    this.npcMash = (role) => (role === 'd' ? (Math.random() * 5) | 0 : 2 + ((Math.random() * 6) | 0));
-    this.streak = 0; // techniques finished in a row without being tapped
+    this.streak = 0; // sparring won in a row
+    this.tech = 'arm'; // the technique put on when a round of sparring is won
+    this.ask = null; // somebody is asking this player to spar: { id, av, name, rule, t }
+    this.refuse = null; // { id, until }: a request this player said no to, told to the one who asked
     this._seq = 0;
     this._raced = new Set(); // races taken part in
     this._raceTold = new Set(); // other people's finishes already announced
@@ -258,6 +256,20 @@ export class Sim {
         this._move(fx * v * dt, fz * v * dt);
       }
       if (u >= 1) this._endAction();
+    } else if (p.act === 'rollb') {
+      const u = p.actT / ROLLB.dur;
+      if (u > ROLLB.a && u < ROLLB.b) {
+        const v = ROLLB.dist / ((ROLLB.b - ROLLB.a) * ROLLB.dur);
+        this._move(-fx * v * dt, -fz * v * dt);
+      }
+      if (u >= 1) this._endAction();
+    } else if (p.act === 'scoot') {
+      const u = (p.actT % SCOOT.cycle) / SCOOT.cycle;
+      if (u > SCOOT.a && u < SCOOT.b) {
+        const v = SCOOT.dist / ((SCOOT.b - SCOOT.a) * SCOOT.cycle);
+        this._move(fx * v * dt, fz * v * dt);
+      }
+      if (p.actT >= SCOOT.cycle * SCOOT.reps || (mag > 0.6 && p.actT > 0.5)) this._endAction();
     } else if (p.act === 'shrimp') {
       const u = (p.actT % SHRIMP.cycle) / SHRIMP.cycle;
       if (u > SHRIMP.a && u < SHRIMP.b) {
@@ -292,7 +304,7 @@ export class Sim {
     if (seat && seat.onLeave) seat.onLeave(this.api);
   }
 
-  /* ---------- techniques: find a partner, play rock-paper-scissors, winner applies it ---------- */
+  /* ---------- sparring: find a partner, then rounds of rock-paper-scissors (spar.js) ---------- */
 
   // The closest person or sparring NPC within reach, or null.
   partner() {
@@ -324,8 +336,8 @@ export class Sim {
   _duelView() {
     const d = this.p.duel;
     if (!this.h.duel) return;
-    const M = d && d.kind === 'match' ? this._matchInfo() : null;
-    const key = d ? `${d.id}|${d.phase}|${d.round}|${d.pick}|${d.phase === 'reveal' ? d.their : ''}|${M ? `${M.me}|${M.them}|${M.left}|${M.pos}|${M.top}|${M.end}` : ''}` : '';
+    const S = d ? this._sparInfo() : null;
+    const key = d ? `${d.id}|${d.phase}|${d.round}|${d.pick}|${d.phase === 'reveal' ? d.their : ''}|${this.tech}|${S ? `${S.me}|${S.them}|${S.n}|${S.end}` : ''}` : '';
     if (key === this._duelKey) return;
     this._duelKey = key;
     if (!d) {
@@ -335,20 +347,29 @@ export class Sim {
     this.h.duel({
       kind: d.kind, name: d.name, mine: d.mine, round: d.round, phase: d.phase,
       pick: d.pick, their: d.phase === 'reveal' ? d.their : null, result: d.result,
-      left: d.phase === 'pick' ? Math.max(0, PICK_TIME - d.t) : 0, total: PICK_TIME,
-      match: M, // a points match: score, clock and position (null for a single technique)
+      left: d.phase === 'pick' ? Math.max(0, SPAR.pick - d.t) : d.phase === 'wait' ? Math.max(0, SPAR.wait - d.t) : 0,
+      total: d.phase === 'wait' ? SPAR.wait : SPAR.pick,
+      tech: d.tk || this.tech, rule: d.S.text,
+      spar: S, // the rounds won on each side (null while still waiting for an answer)
     });
   }
 
-  // Player pressed a technique button.
-  // kind: a technique, or 'match' for a points match.
-  challenge(kind) {
+  // The technique to put on when a round is won. It can be changed until the hand is thrown.
+  setTech(kind) {
+    if (!isKind(kind) || kind === this.tech) return false;
+    this.tech = kind;
+    this._duelView();
+    return true;
+  }
+
+  // The sparring button: ask whoever is within reach. An NPC starts at once; a person is asked.
+  challenge() {
     const p = this.p;
-    const match = kind === 'match';
-    if (!this.world || !(match || isKind(kind)) || this.busy) return false;
+    if (!this.world || this.busy) return false;
+    if (this.ask) return this.answer(true); // somebody is asking already: the same button says yes
     if (p.mode === 'seated' || p.mode === 'action') return false;
     if (!p.onMat) {
-      this.toast(match ? '한 판은 매트 위에서 붙을 수 있습니다' : '기술은 매트 위에서 걸 수 있습니다');
+      this.toast('스파링은 매트 위에서 할 수 있습니다');
       return false;
     }
     if (this._cool > 0) return false;
@@ -359,10 +380,11 @@ export class Sim {
     }
     const o = tg.act;
     this._beginDuel({
-      id: `${this.myPeer || 'solo'}-${++this._seq}`, kind, tgt: tg, name: tg.name, mine: true, round: 1,
-      phase: tg.av ? 'wait' : match ? 'intro' : 'pick', ox: (p.x + o.x) / 2, oz: (p.z + o.z) / 2, yaw: Math.atan2(o.x - p.x, o.z - p.z),
+      id: `${this.myPeer || 'solo'}-${++this._seq}`, kind: 'spar', tgt: tg, name: tg.name, mine: true, round: 1,
+      phase: tg.av ? 'wait' : 'intro', ox: (p.x + o.x) / 2, oz: (p.z + o.z) / 2, yaw: Math.atan2(o.x - p.x, o.z - p.z),
     });
-    if (match && !tg.av) this._matchIntro();
+    if (tg.av) this.toast(`${tg.name} 님에게 스파링을 신청했습니다`, 2600);
+    else this._sparIntro();
     if (tg.npc) {
       tg.npc.busy = true;
       tg.npc.back = false;
@@ -371,19 +393,78 @@ export class Sim {
     return true;
   }
 
-  // Someone else challenged this player (called by the network layer).
+  // Someone is asking this player to spar (called by the network layer for as long as they ask).
+  offer(av, du) {
+    const p = this.p;
+    if (!this.world || !du || du.k !== 'spar') return false;
+    if (this.ask) {
+      if (this.ask.id === du.id) this.ask.seen = this.t;
+      return false;
+    }
+    if (this.busy || p.mode === 'seated' || this._done.has(du.id)) return false;
+    if (Math.hypot(du.ox - p.x, du.oz - p.z) > 3) return false;
+    this.ask = { id: du.id, av, name: av.name, rule: ruleFor(this.sel.belt, av.st.belt).text, t: 0, seen: this.t };
+    if (this.h.ask) this.h.ask({ name: av.name, rule: this.ask.rule, left: SPAR.wait, total: SPAR.wait });
+    if (this.h.sfx) this.h.sfx('beep');
+    return true;
+  }
+
+  // Yes or no to the one who is asking.
+  answer(yes) {
+    const a = this.ask;
+    if (!a) return false;
+    this.ask = null;
+    if (this.h.ask) this.h.ask(null);
+    const du = a.av.du && a.av.du.id === a.id ? a.av.du : null;
+    if (!yes) {
+      this._done.add(a.id);
+      this.refuse = { id: a.id, until: this.t + 4 };
+      this.toast('스파링을 사양했습니다');
+      return true;
+    }
+    if (!du || a.av.gone) {
+      this.toast('신청이 이미 취소되었습니다');
+      return false;
+    }
+    if (!this.acceptDuel(a.av, du)) {
+      this._done.add(a.id);
+      this.refuse = { id: a.id, until: this.t + 4 };
+      this.toast(this.p.onMat ? '지금은 스파링을 시작할 수 없습니다' : '스파링은 매트 위에서 할 수 있습니다');
+      return false;
+    }
+    return true;
+  }
+
+  _stepAsk(dt) {
+    const a = this.ask;
+    if (!a) return;
+    a.t += dt;
+    const gone = a.av.gone || this.t - a.seen > 0.8;
+    if (gone || a.t > SPAR.wait || this.busy) {
+      this.ask = null;
+      if (this.h.ask) this.h.ask(null);
+      if (gone && !this.busy) this.toast('스파링 신청이 취소되었습니다');
+      return;
+    }
+    const left = Math.ceil(SPAR.wait - a.t);
+    if (left !== a.left) {
+      a.left = left;
+      if (this.h.ask) this.h.ask({ name: a.name, rule: a.rule, left: SPAR.wait - a.t, total: SPAR.wait });
+    }
+  }
+
+  // Start the sparring somebody else asked for.
   acceptDuel(av, du) {
     const p = this.p;
-    if (!this.world || this.busy || p.mode === 'seated' || p.mode === 'action') return false;
-    if (this._done.has(du.id) || this._cool > 0) return false;
+    if (!this.world || this.busy || p.mode === 'seated' || du.k !== 'spar') return false;
+    if (this._done.has(du.id) || !p.onMat) return false;
     if (Math.hypot(du.ox - p.x, du.oz - p.z) > 3) return false;
-    const match = du.k === 'match';
+    if (p.mode === 'action' || p.mode === 'sit') this._endAction();
     this._beginDuel({
-      id: du.id, kind: du.k, tgt: { av, act: av, name: av.name }, name: av.name, mine: false, round: du.r || 1,
-      phase: match ? 'intro' : 'pick', ox: du.ox, oz: du.oz, yaw: du.yw,
+      id: du.id, kind: 'spar', tgt: { av, act: av, name: av.name }, name: av.name, mine: false, round: du.r || 1,
+      phase: 'intro', ox: du.ox, oz: du.oz, yaw: du.yw,
     });
-    if (match) this._matchIntro();
-    else this.toast(`${av.name} 님이 ${KINDS[du.k]} 승부를 걸었습니다`);
+    this._sparIntro();
     return true;
   }
 
@@ -399,14 +480,16 @@ export class Sim {
     p.act = null;
     this.char.play('stance');
     this._done.add(d.id);
-    if (d.kind === 'match') this._matchInit(d);
+    this._sparInit(d);
     this._duelView();
   }
 
+  // Throw a hand. The technique chosen at that moment is the one that goes on if the throw wins.
   pick(hand) {
     const d = this.p.duel;
     if (!d || d.phase !== 'pick' || d.pick || !'srp'.includes(hand) || hand.length !== 1) return;
     d.pick = hand;
+    d.tk = this.tech;
     this._duelView();
   }
 
@@ -415,13 +498,8 @@ export class Sim {
     const d = p.duel;
     if (!d) return;
     p.duel = null;
-    if (d.kind === 'match') {
-      // bodies go back to moving at their own pace, and the other person's avatar to its owner
-      this.char.rate = 20;
-      p.pose = '';
-      if (d.tgt.npc) d.tgt.npc.char.rate = 20;
-      if (d.tgt.av) d.tgt.av.ctl = null;
-    }
+    p.pose = '';
+    if (d.tgt.av) d.tgt.av.ctl = null; // the other person's avatar goes back to its owner
     if (d.tgt.npc) d.tgt.npc.release();
     if (p.mode === 'duel') {
       p.mode = 'free';
@@ -433,117 +511,15 @@ export class Sim {
     if (msg) this.toast(msg);
   }
 
-  // Player backed out before choosing.
+  // Player backed out.
   cancelDuel() {
     const d = this.p.duel;
-    if (!d || this.p.mode !== 'duel') return;
-    if (d.kind === 'match') {
-      if (d.phase !== 'end') this._dropDuel('한 판을 그만두었습니다');
-    } else if (d.phase !== 'reveal') this._dropDuel('승부를 취소했습니다');
+    if (!d || this.p.mode !== 'duel' || d.phase === 'end') return;
+    this._dropDuel(d.phase === 'wait' ? '스파링 신청을 취소했습니다' : '스파링을 그만두었습니다');
   }
 
   _stepDuel(dt) {
-    const p = this.p;
-    const d = p.duel;
-    if (d.kind === 'match') {
-      this._stepMatch(dt);
-      return;
-    }
-    d.t += dt;
-    const ux = Math.sin(d.yaw);
-    const uz = Math.cos(d.yaw);
-    const side = d.mine ? -1 : 1; // the challenger stands on the near side of the line
-    const tx = d.ox + ux * GAP * side;
-    const tz = d.oz + uz * GAP * side;
-    const dx = tx - p.x;
-    const dz = tz - p.z;
-    const far = Math.hypot(dx, dz);
-    if (far > 0.02) {
-      const st = Math.min(far, 2.4 * dt);
-      p.x += (dx / far) * st;
-      p.z += (dz / far) * st;
-    }
-    p.yaw = turnToward(p.yaw, d.mine ? d.yaw : d.yaw + Math.PI, 10 * dt);
-    const npc = d.tgt.npc;
-    const av = d.tgt.av;
-    if (npc) {
-      npc.slideTo(d.ox + ux * GAP, d.oz + uz * GAP, 2.4, dt);
-      npc.yaw = turnToward(npc.yaw, d.yaw + Math.PI, 10 * dt);
-    }
-    if (av && av.gone) {
-      this._dropDuel('상대가 자리를 떠났습니다');
-      return;
-    }
-    const theirs = av && av.du && av.du.id === d.id ? av.du : null;
-    if (d.phase === 'wait') {
-      if (theirs) {
-        d.phase = 'pick';
-        d.t = 0;
-        this._duelView();
-      } else if (d.t > 4) this._dropDuel('상대가 응하지 않았습니다');
-      return;
-    }
-    if (d.phase === 'pick') {
-      if (!d.pick && d.t > PICK_TIME) d.pick = randomPick();
-      if (npc) {
-        if (d.pick && !d.their) d.their = this.npcPick();
-      } else if (theirs) {
-        d.lost = 0;
-        if (theirs.r === d.round && theirs.p) d.their = theirs.p;
-      } else if (!(av && av.bt && av.bt.id === d.id)) {
-        d.lost += dt;
-        if (d.lost > 3) {
-          this._dropDuel('상대가 승부를 그만두었습니다');
-          return;
-        }
-      }
-      if (d.pick && d.their) {
-        d.phase = 'reveal';
-        d.t = 0;
-        d.result = rpsResult(d.pick, d.their);
-        if (this.h.sfx) this.h.sfx(d.result > 0 ? 'ding' : d.result < 0 ? 'thud' : 'beep');
-      }
-      this._duelView();
-      return;
-    }
-    if (d.t > 1.6) {
-      if (d.result === 0) {
-        d.round++;
-        d.pick = null;
-        d.their = null;
-        d.result = null;
-        d.phase = 'pick';
-        d.t = 0;
-        this._duelView();
-      } else this._startBout(d.result > 0);
-    }
-  }
-
-  _startBout(iWin) {
-    const p = this.p;
-    const d = p.duel;
-    const other = d.tgt.act;
-    const myName = this.api.name();
-    // The duel line runs from the challenger to the challenged; the attacker faces along it.
-    const atkIsChallenger = iWin === d.mine;
-    const bout = new Bout({
-      id: d.id, kind: d.kind, atk: iWin ? p : other, def: iWin ? other : p,
-      ox: d.ox, oz: d.oz, yaw: atkIsChallenger ? d.yaw : d.yaw + Math.PI,
-      names: iWin ? [myName, d.name] : [d.name, myName],
-    });
-    bout.mine = true;
-    bout.iWin = iWin;
-    bout.tgt = d.tgt;
-    // The struggle is decided where the defender plays; against an NPC, here.
-    if (!iWin || d.tgt.npc) bout.judge = (b) => (b.m.d >= b.m.a + MARGIN ? 1 : 2);
-    if (d.tgt.npc) bout.npcM = this.npcMash(iWin ? 'd' : 'a');
-    if (d.tgt.av) d.tgt.av.bout = bout;
-    p.duel = null;
-    p.bout = bout;
-    p.mode = 'bout';
-    this.bouts.push(bout);
-    this._duelView();
-    this.toast(iWin ? `이겼습니다! ${d.name}에게 ${KIND_OBJ[d.kind]} 겁니다` : `졌습니다. ${d.name}의 ${KIND_SUBJ[d.kind]} 들어옵니다`, 3200);
+    this._stepSpar(dt);
   }
 
   // A technique between two other bodies (other people, or a person and an NPC), shown here too.
@@ -552,43 +528,12 @@ export class Sim {
     return bout;
   }
 
-  // The big button during the struggle of a technique: one press tightens or resists.
-  mash() {
-    const b = this.p.bout;
-    if (!b || !b.open || this.t - (this._mashAt == null ? -1 : this._mashAt) < 0.03) return false;
-    this._mashAt = this.t;
-    const r = b.iWin ? 'a' : 'd';
-    if (b.m[r] < 99) b.m[r]++;
-    return true;
-  }
-
-  _mashView() {
-    if (!this.h.mash) return;
-    const b = this.p.bout;
-    const on = !!b && b.open;
-    const left = on ? clamp((TECH.judge - b.t) / (TECH.judge - TECH.move), 0, 1) : 0;
-    const key = on ? `${b.id}|${b.m.a}|${b.m.d}|${Math.ceil(left * 10)}` : '';
-    if (key === this._mashKey) return;
-    this._mashKey = key;
-    this.h.mash(on ? { role: b.iWin ? 'a' : 'd', a: b.m.a, d: b.m.d, left, margin: MARGIN } : null);
-  }
-
   _stepBouts(dt) {
     const p = this.p;
     const say = (n) => { if (this.h.sfx) this.h.sfx(n); };
     for (let i = this.bouts.length - 1; i >= 0; i--) {
       const b = this.bouts[i];
       const before = b.t;
-      if (b.mine && !b.done) {
-        // the other side's presses: a person's arrive with their state, an NPC's are paced here
-        const their = b.iWin ? 'd' : 'a';
-        const bt = b.tgt.av && b.tgt.av.bt && b.tgt.av.bt.id === b.id ? b.tgt.av.bt : null;
-        if (bt) {
-          if (bt.m > b.m[their]) b.m[their] = bt.m;
-          if (bt.e && !b.judge) b.settle(bt.e);
-        }
-        if (b.npcM != null) b.m[their] = Math.round(b.npcM * clamp((b.t - TECH.move) / (TECH.judge - TECH.move), 0, 1));
-      }
       if (b.cancel) b.finish();
       else b.update(dt);
       const crossed = (at) => before < at && b.t >= at;
@@ -598,39 +543,33 @@ export class Sim {
         if (crossed(GREET.bump)) say('bump');
       }
       if (b.mine && crossed(TECH.down)) say('thud');
-      if (crossed(TECH.tap) && near) {
-        const kind = KINDS[b.kind];
-        if (b.outcome === 1) {
-          this.toast(`탈출! ${b.names[1]} 님이 ${kind}에서 빠져나왔습니다`, 3200);
-          if (b.mine) {
-            say('ding');
-            if (this.h.flash) this.h.flash({ text: '탈출!', kind: 'esc' });
-          }
-        } else {
-          if (b.mine) {
-            if (b.iWin) this.streak++;
-            else this.streak = 0;
-            if (this.h.streak) this.h.streak(this.streak);
-            say('tap');
-            if (this.h.flash) this.h.flash({ text: '탭!', kind: 'tap' });
-          }
+      if (crossed(TECH.tap)) {
+        if (b.mine) {
+          this._sparPoint(b);
+          say('tap');
+          if (this.h.flash) this.h.flash({ text: '탭!', kind: 'tap' });
+        }
+        if (near) {
           if (this.world.name === 'arena') say('cheer');
-          this.toast(`탭! ${b.names[0]}의 ${kind} 성공${b.mine && b.iWin && this.streak >= 2 ? ` · ${this.streak}연승` : ''}`, 3200);
+          const d = b.mine ? b.spar : null;
+          const score = d && this.p.duel === d ? ` · ${d.S.w[d.me]} : ${d.S.w[d.me === 'A' ? 'B' : 'A']}` : '';
+          this.toast(`탭! ${b.names[0]}의 ${KINDS[b.kind]} 성공${score}`, 3000);
         }
       }
       if (!b.done) continue;
       this.bouts.splice(i, 1);
-      if (b.tapped || b.escaped) {
-        this.results.unshift({ ox: b.ox, oz: b.oz, text: b.tapped ? `${b.names[0]} 승 · ${KINDS[b.kind]}` : `${b.names[1]} 탈출 · ${KINDS[b.kind]}`, until: this.t + 12 });
+      if (b.tapped && !b.mine) {
+        this.results.unshift({ ox: b.ox, oz: b.oz, text: `${b.names[0]} · ${KINDS[b.kind]}`, until: this.t + 6 });
         if (this.results.length > 8) this.results.length = 8;
       }
       if (b.onDone) b.onDone(b);
       if (b.mine) {
         p.bout = null;
         if (b.tgt.av && b.tgt.av.bout === b) b.tgt.av.bout = null;
-        if (b.match && p.duel === b.match) this._subDone(b); // a finish inside a points match: the match goes on or ends
+        if (p.mode === 'bout') p.mode = p.duel ? 'duel' : 'free';
+        if (b.spar && p.duel === b.spar && !b.cancel) this._subDone(b); // the next round, or the end of the sparring
+        else if (p.duel) this._dropDuel('상대가 자리를 떠났습니다');
         else {
-          if (p.mode === 'bout') p.mode = 'free';
           this.char.play('loco');
           if (b.tgt.npc) b.tgt.npc.release();
           this._cool = 1.5;
@@ -638,7 +577,6 @@ export class Sim {
       }
     }
     while (this.results.length && this.results[this.results.length - 1].until < this.t) this.results.pop();
-    this._mashView();
   }
 
   // What the network layer publishes about this player.
@@ -647,24 +585,26 @@ export class Sim {
     const d = p.duel;
     const b = p.bout;
     const anim = p.mode === 'sit' ? 'sit' : p.mode === 'seated' ? 'chair' : p.mode === 'action' ? p.act : p.mode === 'duel' ? p.pose || 'stance' : p.mode === 'bout' ? 'tech' : p.mode === 'race' ? 'shrimpf' : 'loco';
-    const M = d && d.kind === 'match' ? d.M : null;
+    const S = d ? d.S : null;
     const r = p.race;
     const out = p.raceOut && p.raceOut.until > this.t ? p.raceOut : null;
     const who = (tg) => (tg.av ? tg.av.id : `n${tg.npc.id}`);
     return {
       x: p.x, y: p.y, z: p.z, yaw: p.yaw, anim, actN: p.actN, seat: p.mode === 'seated' && p.seat ? p.seat.id || '' : '', medal: p.medal,
       say: p.say && p.say.until > this.t ? p.say.n * 8 + p.say.i + 1 : 0,
-      du: d ? Object.assign(
-        { id: d.id, w: who(d.tgt), k: d.kind, r: d.round, p: d.pick, c: d.mine ? 1 : 0, ox: d.ox, oz: d.oz, yw: d.yaw },
-        // a points match also tells the score, the clock and, from the challenger, how it ended
-        M ? { sa: M.sc.A, sb: M.sc.B, tl: Math.ceil(M.left), e: M.end, ps: posCode(M) } : null,
-      ) : null,
+      // r: which throw this is; p, tk: my hand of it and the technique that goes with it; q, qk: the
+      // same for the throw before; sa, sb: rounds won; e: how the sparring ended
+      du: d ? {
+        id: d.id, w: who(d.tgt), k: d.kind, r: d.round, p: d.pick, tk: d.pick ? d.tk : null, c: d.mine ? 1 : 0, ox: d.ox, oz: d.oz, yw: d.yaw,
+        q: d.prev && d.prev.r === d.round - 1 ? d.prev.p : null, qk: d.prev && d.prev.r === d.round - 1 ? d.prev.tk : null,
+        sa: S.w.A, sb: S.w.B, e: S.end,
+      } : null,
+      rj: this.refuse && this.refuse.until > this.t ? this.refuse.id : null,
       // a shrimp race: f is 0 while racing, the time in hundredths once finished
       race: r && r.phase !== 'done' ? { id: r.id, f: 0 } : out ? { id: out.id, f: out.f } : null,
       photo: p.photo && p.photo.until > this.t ? p.photo.n : 0,
-      // m: my presses in the struggle; e: how it ended (1 escape, 2 tap), told only by the side that decides
-      // s: started on the ground, from the mount of a points match
-      bt: b ? { id: b.id, w: who(b.tgt), k: b.kind, r: b.iWin ? 'a' : 'd', ox: b.ox, oz: b.oz, yw: b.yaw, m: b.m[b.iWin ? 'a' : 'd'], e: b.judge ? b.outcome : 0, s: b.ground ? 1 : null } : null,
+      // s: started without the slap and bump (every round of sparring after the first)
+      bt: b ? { id: b.id, w: who(b.tgt), k: b.kind, r: b.iWin ? 'a' : 'd', ox: b.ox, oz: b.oz, yw: b.yaw, s: b.skip ? 1 : null } : null,
       streak: this.streak,
     };
   }
@@ -729,7 +669,7 @@ export class Sim {
       this._prompt = best;
       if (this.h.prompt) this.h.prompt(best);
     }
-    // tell the HUD whether a technique can be started right now, and on whom
+    // tell the HUD whether sparring can be started right now, and with whom
     const tg = this.busy || p.mode === 'seated' ? null : this.partner();
     const key = tg ? `${tg.name}|${p.onMat ? 1 : 0}` : '';
     if (key !== this._partner) {
@@ -788,6 +728,7 @@ export class Sim {
     if (p.mode === 'action') this._stepAction(dt, mag);
     if (p.mode === 'race') this._stepRace(dt, mag);
     if (p.mode === 'duel') this._stepDuel(dt);
+    this._stepAsk(dt);
     this._stepBouts(dt);
 
     const g = this._ground(p.x, p.z, p.y);
@@ -836,4 +777,4 @@ export class Sim {
   }
 }
 
-Object.assign(Sim.prototype, MatchMixin, RaceMixin);
+Object.assign(Sim.prototype, SparMixin, RaceMixin);

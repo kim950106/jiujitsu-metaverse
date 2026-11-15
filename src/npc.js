@@ -41,7 +41,7 @@ export class NPC {
     this.back = false; // walking back to its spot afterwards
     this.name = o.name || o.label || '파트너';
     // what this one answers to the three quick phrases (greeting, asking for a round, goodbye)
-    this.lines = o.lines === null ? null : o.lines || (o.spar ? ['안녕하세요!', '좋아요. 붙어서 기술 버튼!', '내일 봬요!'] : ['안녕하세요!', '저는 구경할게요.', '내일 봬요!']);
+    this.lines = o.lines === null ? null : o.lines || (o.spar ? ['안녕하세요!', '좋아요. 붙어서 스파링 버튼!', '내일 봬요!'] : ['안녕하세요!', '저는 구경할게요.', '내일 봬요!']);
     this.reply = null;
     this.home = { x: this.x, z: this.z, yaw: this.yaw, anim: o.anim || 'loco', mode: this.mode };
     world.scene.add(this.char.root);

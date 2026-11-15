@@ -17,6 +17,11 @@ const SEAT = 0.57; // hip height on a chair
 
 export const SHRIMP = { cycle: 1.25, a: 0.45, b: 0.8, dist: 0.38, reps: 3 };
 export const ROLL = { dur: 1.15, a: 0.2, b: 0.85, dist: 1.9 };
+// Backward roll: sit back and tuck, turn over backwards between a and b, moving `dist` backwards.
+export const ROLLB = { dur: 1.3, a: 0.26, b: 0.86, dist: 1.6 };
+// Hip walk: seated with the legs out in front, one hip is thrown forward at a time; each cycle
+// carries the body `dist` metres forward between a and b.
+export const SCOOT = { cycle: 0.8, a: 0.2, b: 0.8, dist: 0.3, reps: 5 };
 export const BOW = { dur: 1.35 };
 export const SHAKA = { dur: 1.7 };
 export const BRIDGE = { cycle: 1.15, reps: 3 };
@@ -28,7 +33,7 @@ export const RACE = { stroke: 0.4, a: 0.3, b: 0.85, step: 0.5 };
 // Two-person technique, in seconds from the start: slap and bump, step in and grip, takedown,
 // move to the finishing hold, the struggle (both sides hammer their button until `judge`), the
 // tap, let go and stand, bow. A technique that is escaped from has its own later moments (Bout.T).
-export const TECH = { greet: 0.9, clinch: 1.4, down: 2.2, move: 3.2, judge: 5.2, tap: 5.8, hold: 7.1, up: 8.0, end: 9.35 };
+export const TECH = { greet: 0.9, clinch: 1.4, down: 2.2, move: 3.2, judge: 4.1, tap: 4.6, hold: 5.9, up: 6.8, end: 7.9 };
 // Moments inside the greeting when the palms and then the fists meet.
 export const GREET = { slap: 0.36, bump: 0.7 };
 // The tucked body rolls like an egg: centre of the tuck relative to the hips, and its half-length / half-height.
@@ -51,7 +56,7 @@ const KEYS = Object.keys(NEUTRAL);
 // Expression shown while a given animation plays; anything else uses the character's own face.
 const ANIM_FACE = {
   stance: 'focus', guardTop: 'focus', guardBottom: 'focus', shrimp: 'focus',
-  roll: 'wow', bow: 'calm', sit: 'calm', stretch: 'grin', coach: 'grin', shaka: 'grin',
+  roll: 'wow', rollb: 'wow', scoot: 'focus', bow: 'calm', sit: 'calm', stretch: 'grin', coach: 'grin', shaka: 'grin',
   bridge: 'focus', standup: 'focus', shrimpf: 'focus',
   sideTop: 'focus', sideBottom: 'focus', mountTop: 'focus', mountBottom: 'wow', win: 'grin',
 };
@@ -745,6 +750,52 @@ const POSES = {
     P.aLx = P.aRx = -1.4 * tuck;
     P.fL = P.fR = -0.9 * tuck;
   },
+  rollb(c, P) {
+    const u = clamp(c.animT / ROLLB.dur, 0, 1);
+    let tuck;
+    let spin = 0;
+    if (u < ROLLB.a) tuck = ease(u / ROLLB.a);
+    else if (u < ROLLB.b) {
+      tuck = 1;
+      spin = (u - ROLLB.a) / (ROLLB.b - ROLLB.a);
+    } else tuck = 1 - ease((u - ROLLB.b) / (1 - ROLLB.b));
+    P.tiltX = -spin * TAU;
+    P.drop = (TUCK.b - TUCK.cy - H) * tuck;
+    P.spine = 1.2 * tuck;
+    P.head = 0.6 * tuck;
+    P.lLx = P.lRx = -1.8 * tuck;
+    P.sL = P.sR = 2.0 * tuck;
+    // the hands go back beside the ears, to push off the mat
+    P.aLx = P.aRx = -2.5 * tuck;
+    P.fL = P.fR = -1.5 * tuck;
+  },
+  scoot(c, P) {
+    const n = Math.floor(c.animT / SCOOT.cycle);
+    const u = (c.animT % SCOOT.cycle) / SCOOT.cycle;
+    const side = n % 2 === 0 ? 1 : -1; // which hip goes forward
+    const sit = Math.min(1, ease(c.animT / 0.3));
+    const sw = Math.sin(clamp((u - SCOOT.a) / (SCOOT.b - SCOOT.a), 0, 1) * Math.PI); // 0 .. 1 .. 0 over the step
+    P.drop = (SIT - H) * sit;
+    P.tiltX = -0.18 * sit;
+    P.spine = 0.28 * sit;
+    P.head = 0.05;
+    P.twist = side * 0.42 * sw * sit;
+    P.sway = -side * 0.1 * sw * sit;
+    P.bob = 0.035 * sw * sit;
+    // legs out in front, knees a little bent; the leg of the leading hip reaches further
+    P.lLx = (-1.42 - (side > 0 ? 0.14 : -0.06) * sw) * sit;
+    P.lRx = (-1.42 - (side < 0 ? 0.14 : -0.06) * sw) * sit;
+    P.sL = (0.34 + (side > 0 ? -0.2 : 0.3) * sw) * sit;
+    P.sR = (0.34 + (side < 0 ? -0.2 : 0.3) * sw) * sit;
+    P.lLz = 0.1 * sit;
+    P.lRz = -0.1 * sit;
+    // elbows bent, swinging with the hips
+    P.aLx = (-0.5 - side * 0.5 * sw) * sit;
+    P.aRx = (-0.5 + side * 0.5 * sw) * sit;
+    P.fL = P.fR = -1.3 * sit;
+    P.aLz = 0.3;
+    P.aRz = -0.3;
+  },
   // One half of a two-person technique. c.tech = { kind, role: 'a' | 'd', t }. Where each body
   // stands is decided by Bout in tech.js. The ankle lock and the armbar are written out below:
   // the attacker takes the defender down and finishes, the defender taps the mat. The other
@@ -1082,7 +1133,7 @@ export class Character {
       add(eA, g.box, this.m.belt, 0.058, 0.17, 0.014, 0, -0.085, 0);
       add(eA, g.box, this.m.bar, 0.061, 0.07, 0.017, 0, -0.115, 0.001);
       if (!q.lite) {
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 6; i++) {
           this.stripes.push(add(eA, g.box, this.m.stripe, 0.063, 0.009, 0.02, 0, -0.092 - i * 0.0148, 0.001));
         }
       }
@@ -1164,7 +1215,13 @@ export class Character {
       const b = BELTS[q.belt];
       this.m.belt.color.setHex(q.belt === 'white' && q.gi === 'white' ? 0xd9d5c8 : b.color);
       this.m.bar.color.setHex(b.bar);
-      this.stripes.forEach((s, i) => { s.visible = i < q.stripes; });
+      // up to four stripes sit evenly on the bar; the five or six degrees of a black belt are packed closer
+      const gap = q.stripes > 4 ? 0.0102 : 0.0148;
+      this.stripes.forEach((s, i) => {
+        s.visible = i < q.stripes;
+        s.position.y = (q.stripes > 4 ? -0.0885 : -0.092) - i * gap;
+        s.scale.y = q.stripes > 4 ? 0.0066 : 0.009;
+      });
       this.m.under.color.setHex(q.female ? 0x23262d : this.m.skin.color.getHex());
     } else if (q.outfit === 'ref') {
       this.m.top.color.setHex(0x17191c);
@@ -1211,6 +1268,8 @@ export class Character {
     this.patchTex.needsUpdate = true;
   }
 
+  // The name floating over the head: small light text with a dark edge, so that it reads from the
+  // front, the back and against any wall.
   setLabel(text) {
     if (this.label) {
       this.root.remove(this.label);
@@ -1219,20 +1278,26 @@ export class Character {
       this.label = null;
     }
     if (!text) return;
-    const cv = newCanvas(256, 64);
+    const cv = newCanvas(256, 56);
     const c = cv.getContext('2d');
-    c.fillStyle = 'rgba(15,17,20,.84)';
-    c.fillRect(0, 6, 256, 52);
-    c.fillStyle = '#ffd79a';
-    c.fillRect(0, 54, 256, 4);
     c.textAlign = 'center';
     c.textBaseline = 'middle';
-    c.font = FONT(28, 700);
-    fitText(c, text, 128, 31, 236, 28, 700);
+    c.lineJoin = 'round';
+    c.lineWidth = 7;
+    c.strokeStyle = 'rgba(12,14,18,.92)';
+    c.fillStyle = '#fff3d6';
+    let px = 30;
+    c.font = FONT(px, 700);
+    while (px > 12 && c.measureText(text).width > 240) {
+      px -= 2;
+      c.font = FONT(px, 700);
+    }
+    c.strokeText(text, 128, 29);
+    c.fillText(text, 128, 29);
     const tex = new THREE.CanvasTexture(cv);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false }));
-    sp.scale.set(1.2, 0.3, 1);
-    sp.position.set(0, TALL + 0.3, 0);
+    sp.scale.set(0.96, 0.21, 1);
+    sp.position.set(0, TALL + 0.2, 0);
     this.root.add(sp);
     this.label = sp;
   }
@@ -1279,7 +1344,7 @@ export class Character {
     const tex = new THREE.CanvasTexture(cv);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }));
     sp.center.set(0.5, 0);
-    sp.position.set(0, TALL + (this.label ? 0.5 : 0.14), 0);
+    sp.position.set(0, TALL + (this.label ? 0.44 : 0.14), 0);
     sp.renderOrder = 5;
     this.root.add(sp);
     this.bubble = sp;
@@ -1303,7 +1368,7 @@ export class Character {
   }
 
   play(name) {
-    if (this.anim === 'roll') this.C.tiltX = 0;
+    if (this.anim === 'roll' || this.anim === 'rollb') this.C.tiltX = 0;
     this.anim = POSES[name] ? name : 'loco';
     this.animT = 0;
     if (name === 'shrimpf') this.strokeN = (this.strokeN || 0) + 1;
@@ -1312,6 +1377,7 @@ export class Character {
   update(dt, speed = 0) {
     this.animT += dt;
     this.time += dt;
+    if (this.label) this.label.position.y = TALL + 0.2 + 0.018 * Math.sin(this.time * 2.1 + this.seed); // it floats a little
     const P = this.P;
     const C = this.C;
     for (const k of KEYS) P[k] = NEUTRAL[k];
@@ -1320,7 +1386,7 @@ export class Character {
     for (const key of KEYS) C[key] += (P[key] - C[key]) * k;
     let ty = H + C.drop + C.bob;
     let tz = 0;
-    if (this.anim === 'roll') {
+    if (this.anim === 'roll' || this.anim === 'rollb') {
       // Rotate about the middle of the tucked body and keep it resting on the mat as it turns over.
       C.tiltX = P.tiltX;
       const s = Math.sin(C.tiltX);

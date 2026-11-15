@@ -41,6 +41,13 @@ export const BELTS = {
   black: { name: '검은 띠', color: 0x161616, css: '#161616', bar: 0xc62828, minutes: 10 },
 };
 export const BELT_ORDER = ['white', 'blue', 'purple', 'brown', 'black'];
+// The black belt is kept for these three names. (The page cannot tell who is typing, so this is a
+// house rule, not a lock.) Anyone else is asked to speak to the developer.
+export const BLACK_NAMES = ['김상인', '양동건', '서현찬'];
+export const mayBlack = (name) => BLACK_NAMES.includes(String(name || '').replace(/\s+/g, ''));
+// Stripes on the bar: up to four below black; on a black belt they are degrees, none to six
+// (from the seventh degree the belt itself changes to the red and black coral belt).
+export const maxStripes = (belt) => (belt === 'black' ? 6 : 4);
 export const GIS = {
   white: { name: '흰색', color: 0xf3f2ee },
   blue: { name: '로열 블루', color: 0x2148b5 },
@@ -487,6 +494,20 @@ export class World {
     });
   }
 
+  // Square stone-grey wall tiles with a thin dark joint, as on the dojo walls.
+  texTile() {
+    return this._cached('tile', 128, 128, (c) => {
+      c.fillStyle = '#4e5156';
+      c.fillRect(0, 0, 128, 128);
+      const cols = ['#8d9095', '#888b90', '#93969b', '#8a8d93'];
+      for (let r = 0; r < 2; r++) {
+        for (let k = 0; k < 2; k++) {
+          c.fillStyle = pick(cols);
+          c.fillRect(k * 64 + 1.5, r * 64 + 1.5, 61, 61);
+        }
+      }
+    });
+  }
   texPlank(kind) {
     return this._cached('plank' + kind, 256, 256, (c) => {
       const cols = kind === 'black'

@@ -15,6 +15,20 @@ export function hourNow() {
   return d.getHours() + d.getMinutes() / 60;
 }
 
+// The hour asked for in the address (?h=9), or null. The dojo's terrace is shown by night unless
+// one is given.
+export function hourAsked() {
+  try {
+    const m = /[?&]h=([0-9.]+)/.exec(location.search);
+    if (m) {
+      const v = parseFloat(m[1]);
+      if (v >= 0 && v < 24) return v;
+    }
+  } catch (e) { /* no address to read */ }
+  return null;
+}
+export const NIGHT_HOUR = 21.5;
+
 const hex = (s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
 const mix = (a, b, t) => {
   const A = hex(a);

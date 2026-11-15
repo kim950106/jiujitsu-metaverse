@@ -1,6 +1,7 @@
 /* global THREE, window, performance */
-// Map 2: the tournament hall. A 70 x 39 m arena floor with a crowd on four sides, two open mats
-// for visitors to fight on, a warm-up area and a podium. Only one black-belt coach may sit matside.
+// Map 2: the tournament hall. A 70 x 39 m arena floor with a crowd on four sides, four open mats
+// joined in one block (blue, with yellow lanes round and between them) for visitors to spar on, a
+// warm-up area and a podium in front of a tall backdrop. Only one black-belt coach may sit matside.
 import { World, GEO, FONT, fitText, drawContain, rand, pick } from './util.js';
 import { NPC, randomLook, casualLook } from './npc.js';
 import { KINDS } from './tech.js';
@@ -179,7 +180,7 @@ export function buildArena(api) {
     });
   }
 
-  /* ---------- two open mats ---------- */
+  /* ---------- four open mats, joined in one block ---------- */
   const texY = w.texMatColor('yellow', '#f0c22e', '#d6a91f');
   const texB = w.texMatColor('blue', '#2a5cab', '#234f95');
   const mats = [];
@@ -223,31 +224,57 @@ export function buildArena(api) {
   };
 
   let lastBow = -1e9;
-  for (let n = 0; n < 2; n++) {
-    const cx = n === 0 ? -6.6 : 6.6;
-    const cz = 0.8;
-    const zt = cz - 6.4;
-    const face = 0; // yaw that looks toward the mat from the table side
-    w.box({ x: cx, z: cz, w: 10, h: 0.05, d: 10, color: 0x234f95 });
-    w.floor({ x: cx, z: cz, y: 0.056, w: 10, d: 10, tex: texB, tile: 2 });
-    w.floor({ x: cx, z: cz, y: 0.072, w: 8, d: 8, tex: texY, tile: 2 });
-    w.collider(cx - 5, cx + 5, cz - 5, cz + 5, 0, 0.06);
+  const MS = 8; // one mat, lane to lane
+  const IN = 6.5; // its blue fighting area
+  // the blue surround, then one yellow sheet under all four: it shows as the lanes
+  w.box({ x: 0, z: 0, w: MS * 2 + 3, h: 0.04, d: MS * 2 + 1.6, color: 0x234f95 });
+  w.floor({ x: 0, z: 0, y: 0.045, w: MS * 2 + 3, d: MS * 2 + 1.6, tex: texB, tile: 2 });
+  w.floor({ x: 0, z: 0, y: 0.058, w: MS * 2, d: MS * 2, tex: texY, tile: 2 });
+  w.collider(-MS - 1.5, MS + 1.5, -MS - 0.8, MS + 0.8, 0, 0.05);
+  for (let n = 0; n < 4; n++) {
+    const sx = n % 2 === 0 ? -1 : 1; // which side of the block its table stands on
+    const cx = sx * (MS / 2);
+    const cz = n < 2 ? -MS / 2 : MS / 2;
+    const tx = sx * (MS + 2.6);
+    const face = sx < 0 ? Math.PI / 2 : -Math.PI / 2; // yaw that looks toward the mat from the table side
+    w.floor({ x: cx, z: cz, y: 0.072, w: IN, d: IN, tex: texB, tile: 2 });
+    // the event logo slot in the middle of the blue
+    w.logoSlot('event', w.sign({
+      x: cx, y: 0.078, z: cz, w: 2.6, h: 1.1, flat: true, transparent: true, res: 96,
+      draw: (c, W, H, img) => {
+        c.clearRect(0, 0, W, H);
+        if (img) {
+          c.globalAlpha = 0.92;
+          drawContain(c, img, 0, 0, W, H, 2);
+          c.globalAlpha = 1;
+        } else {
+          c.fillStyle = 'rgba(240,194,46,.9)';
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          fitText(c, `MAT ${n + 1}`, W / 2, H / 2 + 2, W * 0.8, Math.round(H * 0.6));
+        }
+      },
+    }));
     // score table, stool, scoreboard
-    w.box({ x: cx - 1.6, z: zt, w: 2.2, h: 0.74, d: 0.7, color: 0x15171a, collide: true });
-    w.box({ x: cx - 1.6, z: zt, y: 0.74, w: 2.3, h: 0.03, d: 0.8, color: 0xe9edf2 });
-    w.box({ x: cx - 1.6, z: zt - 0.78, w: 0.44, h: 0.45, d: 0.44, color: 0x2b3140 });
-    w.box({ x: cx + 0.7, z: zt, w: 0.08, h: 1.25, d: 0.08, color: 0x15171a });
-    w.box({ x: cx + 0.7, z: zt, w: 0.55, h: 0.04, d: 0.55, color: 0x15171a });
-    w.box({ x: cx + 0.7, z: zt, y: 1.22, w: 1.78, h: 1.04, d: 0.05, color: 0x15171a });
-    const m = { n: n + 1, cx, cz, zt, face, kx: cx + 3.3, kz: cz - 5.9, data: null, key: '' };
+    const sz = n < 2 ? -1 : 1; // which end of the block it is at
+    const zt = cz + sz * 0.6;
+    const zb = cz - sz * 1.9; // scoreboard
+    const zf = cz - sz * 3.4; // flag
+    w.box({ x: tx, z: zt, w: 0.7, h: 0.74, d: 2.2, color: 0x15171a, collide: true });
+    w.box({ x: tx, z: zt, y: 0.74, w: 0.8, h: 0.03, d: 2.3, color: 0xe9edf2 });
+    w.box({ x: tx + sx * 0.78, z: zt, w: 0.44, h: 0.45, d: 0.44, color: 0x2b3140 });
+    w.box({ x: tx, z: zb, w: 0.08, h: 1.25, d: 0.08, color: 0x15171a });
+    w.box({ x: tx, z: zb, w: 0.55, h: 0.04, d: 0.55, color: 0x15171a });
+    w.box({ x: tx, z: zb, y: 1.22, w: 0.05, h: 1.04, d: 1.78, color: 0x15171a });
+    const m = { n: n + 1, cx, cz, zt, face, kx: sx * (MS + 1.2), kz: cz + sz * 3.2, data: null, key: '' };
     m.board = w.sign({
-      x: cx + 0.7, y: 1.74, z: zt, w: 1.7, h: 0.96, res: 160, double: true, gap: 0.03,
+      x: tx, y: 1.74, z: zb, w: 1.7, h: 0.96, res: 160, double: true, gap: 0.03, rotY: face,
       draw: (c, W, H) => { if (m.data) drawScore(c, W, H, m.data); },
     });
     // mat number flag
-    w.box({ x: cx - 4.3, z: zt, w: 0.07, h: 3.1, d: 0.07, color: 0x15171a });
+    w.box({ x: tx, z: zf, w: 0.07, h: 3.1, d: 0.07, color: 0x15171a });
     w.sign({
-      x: cx - 4.3, y: 2.78, z: zt, w: 1.5, h: 0.72, double: true, gap: 0.04,
+      x: tx, y: 2.78, z: zf, w: 1.5, h: 0.72, double: true, gap: 0.04, rotY: face,
       draw: (c, W, H) => {
         c.fillStyle = '#10223a';
         c.fillRect(0, 0, W, H);
@@ -259,10 +286,10 @@ export function buildArena(api) {
     });
     // coach chair and its floor marking
     w.box({ x: m.kx, z: m.kz, y: 0.4, w: 0.46, h: 0.05, d: 0.46, color: 0x2b3140 });
-    w.box({ x: m.kx, z: m.kz - 0.22, y: 0.45, w: 0.46, h: 0.48, d: 0.04, color: 0x2b3140 });
+    w.box({ x: m.kx + sx * 0.22, z: m.kz, y: 0.45, w: 0.04, h: 0.48, d: 0.46, color: 0x2b3140 });
     for (const [dx, dz] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]]) w.box({ x: m.kx + dx, z: m.kz + dz, w: 0.03, h: 0.4, d: 0.03, color: 0x8a9099 });
     w.sign({
-      x: m.kx, y: 0.013, z: m.kz, w: 1.7, h: 1.7, flat: true, rotY: Math.PI, transparent: true,
+      x: m.kx, y: 0.06, z: m.kz, w: 1.5, h: 1.5, flat: true, rotY: face + Math.PI, transparent: true,
       draw: (c, W, H) => {
         c.clearRect(0, 0, W, H);
         c.strokeStyle = '#f4f6f8';
@@ -275,21 +302,21 @@ export function buildArena(api) {
       },
     });
     mats.push(m);
-    new NPC(w, { x: cx - 1.6, z: zt - 0.78, yaw: face, anim: 'desk', solid: false, look: casualLook({ top: 0x2c3e55 }) });
+    new NPC(w, { x: tx + sx * 0.78, z: zt, yaw: face, anim: 'desk', solid: false, look: casualLook({ top: 0x2c3e55 }) });
     w.sprite(`MAT ${n + 1} · 빈 매트`, cx, 3.4, cz, 1.5);
     w.zone({
-      id: `mat${m.n}`, label: `MAT ${m.n} · 빈 매트`, prio: 3, surface: 'mat', minX: cx - 5, maxX: cx + 5, minZ: cz - 5, maxZ: cz + 5,
+      id: `mat${m.n}`, label: `MAT ${m.n} · 빈 매트`, prio: 3, surface: 'mat', minX: cx - MS / 2, maxX: cx + MS / 2, minZ: cz - MS / 2, maxZ: cz + MS / 2,
       onEnter: (a2) => {
         if (nowMs() - lastBow > 25000) {
           lastBow = nowMs();
           a2.bow();
         }
-        tipOnce('mat', '빈 매트에 올랐습니다. 상대에게 붙어서 기술 버튼을 누르면 가위바위보로 승부하고, ‘한 판’은 점수 경기입니다', 5200);
+        tipOnce('mat', '빈 매트에 올랐습니다. 상대에게 붙어서 스파링 버튼을 누르면 띠에 맞는 판 수로 가위바위보 승부를 합니다', 5200);
       },
     });
     const seatId = `coach${m.n}`;
     w.zone({
-      id: seatId, label: '지도자석', prio: 4, minX: m.kx - 0.8, maxX: m.kx + 0.8, minZ: m.kz - 0.8, maxZ: m.kz + 0.8,
+      id: seatId, label: '지도자석', prio: 4, minX: m.kx - 0.7, maxX: m.kx + 0.7, minZ: m.kz - 0.7, maxZ: m.kz + 0.7,
       canEnter: (a2) => {
         if (!a2.isBlack()) {
           a2.toast('지도자석은 블랙벨트 지도자 1명만 들어갈 수 있습니다');
@@ -315,18 +342,17 @@ export function buildArena(api) {
     if (acc < 0.5) return;
     acc = 0;
     for (const m of mats) {
-      const box = [m.cx - 5, m.cx + 5, m.cz - 5, m.cz + 5];
+      const box = [m.cx - MS / 2, m.cx + MS / 2, m.cz - MS / 2, m.cz + MS / 2];
       const b = api.boutIn(...box);
       const mt = api.matchIn(...box);
-      const r = b || (mt && !mt.end) ? null : api.lastIn(...box); // a match that has just ended shows its result at once
+      const r = b || (mt && !mt.end) ? null : api.lastIn(...box); // sparring that has just ended shows its result at once
       let d;
       if (mt && !mt.end) {
-        // a points match: the two names with their points, and the clock
-        const clock = `${(mt.left / 60) | 0}:${String(mt.left % 60).padStart(2, '0')}`;
-        d = { n: m.n, div: '한 판', a: mt.a, b: mt.b, ma: String(mt.sa), mb: String(mt.sb), foot: b ? `${KINDS[b.kind]} · ${clock}` : `${clock}${mt.pos ? ` · ${mt.pos}` : ''}`, hot: !!b };
-      } else if (b) d = { n: m.n, div: KINDS[b.kind], a: b.names[0], b: b.names[1], ma: b.tapped ? '승' : '', mb: b.tapped ? '탭' : '', foot: b.tapped ? `탭! ${b.names[0]} 승` : '기술 진행 중', hot: b.tapped };
+        // sparring: the two names with the rounds each has won
+        d = { n: m.n, div: `스파링 · ${mt.max}판 ${mt.need}선승`, a: mt.a, b: mt.b, ma: String(mt.sa), mb: String(mt.sb), foot: b ? `${KINDS[b.kind]}${b.tapped ? ' · 탭!' : ''}` : `${Math.min(mt.max, mt.sa + mt.sb + 1)}판째 가위바위보`, hot: !!b };
+      } else if (b) d = { n: m.n, div: KINDS[b.kind], a: b.names[0], b: b.names[1], ma: b.tapped ? '승' : '', mb: b.tapped ? '탭' : '', foot: b.tapped ? `탭! ${b.names[0]}` : '기술 진행 중', hot: b.tapped };
       else if (r) d = { n: m.n, div: '결과', a: r.text, b: '', ma: '', mb: '', foot: '다음 선수 입장', hot: true };
-      else d = { n: m.n, div: '빈 매트', a: '누구나 올라올 수 있습니다', b: '붙어서 기술 → 한 판', ma: '', mb: '', foot: '점수 경기는 여기서', hot: false };
+      else d = { n: m.n, div: '빈 매트', a: '누구나 올라올 수 있습니다', b: '상대에게 붙어서 스파링', ma: '', mb: '', foot: '띠에 맞는 판 수로 승부', hot: false };
       const key = `${d.div}|${d.a}|${d.b}|${d.ma}|${d.mb}|${d.foot}`;
       if (key === m.key) continue;
       m.key = key;
@@ -336,7 +362,7 @@ export function buildArena(api) {
   });
   w.zone({
     id: 'fop', label: '경기 구역', prio: 1, minX: -BX, maxX: BX, minZ: -BZ, maxZ: BZ,
-    onEnter: () => tipOnce('fop', '경기 구역입니다. 빈 매트 두 곳은 누구나 올라가 겨룰 수 있습니다'),
+    onEnter: () => tipOnce('fop', '경기 구역입니다. 빈 매트 네 곳은 누구나 올라가 겨룰 수 있습니다'),
   });
 
   /* ---------- warm-up area ---------- */
@@ -370,7 +396,7 @@ export function buildArena(api) {
       c.fillStyle = '#f2c230';
       c.font = FONT(Math.round(H * 0.09));
       c.fillText('안내', W * 0.04, H * 0.085);
-      const rows = ['MAT 1 · MAT 2  빈 매트, 누구나 입장', '상대에게 붙어서 기술 버튼 · 한 판은 점수 경기', '가위바위보에서 이긴 쪽이 기술을 겁니다', '지도자석은 검은 띠 1명만', '시상대는 동쪽 끝'];
+      const rows = ['MAT 1 ~ 4  빈 매트, 누구나 입장', '상대에게 붙어서 스파링 버튼 · 사람은 수락해야 시작', '흰 5판3승 · 파랑 6판4승 · 보라 7판4승 · 갈색 8판5승 · 검정 10판6승', '지도자석은 검은 띠 1명만', '시상대는 동쪽 끝'];
       rows.forEach((t, i) => {
         c.fillStyle = i === 0 ? '#f4f6f8' : '#c9d2dc';
         fitText(c, t, W * 0.04, H * (0.28 + i * 0.145), W * 0.92, Math.round(H * 0.075), i === 0 ? 700 : 500);
@@ -381,7 +407,7 @@ export function buildArena(api) {
   new NPC(w, { x: -32.2, z: -6.2, yaw: Math.PI / 2, anim: 'stretch', look: randomLook(), spar: true, name: '몸 푸는 선수' });
   w.zone({
     id: 'warmup', label: '몸 푸는 곳', prio: 2, surface: 'mat', minX: WX0, maxX: WX1, minZ: WZ0, maxZ: WZ1,
-    onEnter: () => tipOnce('warm', '몸 푸는 곳입니다. 새우빼기와 앞구르기를 하거나, 파트너에게 붙어서 기술을 걸어 보세요', 5200),
+    onEnter: () => tipOnce('warm', '몸 푸는 곳입니다. 새우빼기와 구르기를 하거나, 파트너에게 붙어서 스파링을 해 보세요', 5200),
   });
 
   /* ---------- weigh-in and gi check ---------- */
@@ -405,26 +431,39 @@ export function buildArena(api) {
   new NPC(w, { x: -30.2, z: -18.2, yaw: 0, anim: 'desk', solid: false, look: casualLook({ top: 0x2c3e55 }) });
   w.zone({ id: 'weigh', label: '계체 · 도복 검사', prio: 2, minX: -34.5, maxX: -25.5, minZ: -HZ, maxZ: -14.6 });
 
-  /* ---------- podium: three steps, three medals ---------- */
+  /* ---------- podium: blue steps numbered 2 · 1 · 3, a tall backdrop on a truss ---------- */
   const PX = 31.2;
-  w.floor({ x: 30.2, z: 0, y: 0.012, w: 8.6, d: 9.4, color: 0x8c1f28 });
-  const blocks = [[0, 0.6, 1, '1위'], [-1.42, 0.42, 2, '2위'], [1.42, 0.3, 3, '3위']];
+  w.floor({ x: 30.2, z: 0, y: 0.012, w: 8.6, d: 9.4, color: 0x1a3f93 });
+  const blocks = [[0, 0.62, 1, '1위'], [-1.72, 0.42, 2, '2위'], [1.72, 0.42, 3, '3위']];
   for (const [z, h, place, label] of blocks) {
-    w.box({ x: PX, z, w: 1.4, h, d: 1.36, color: 0xf4f6f8, collide: true });
+    w.box({ x: PX, z, w: 1.5, h, d: 1.7, color: 0x16388a, collide: true });
+    w.box({ x: PX, z, y: h, w: 1.52, h: 0.012, d: 1.72, color: 0x1f49ad });
     w.sign({
-      x: PX - 0.702, y: h / 2, z, w: 0.6, h: Math.min(0.5, h * 0.8), rotY: -Math.PI / 2,
+      x: PX - 0.752, y: h / 2, z, w: 1.68, h: h - 0.04, rotY: -Math.PI / 2, res: 200,
       draw: (c, W, H) => {
-        c.fillStyle = '#f4f6f8';
+        c.fillStyle = '#16388a';
         c.fillRect(0, 0, W, H);
-        c.fillStyle = '#10223a';
+        // gold leaves sweeping in from both lower corners
+        c.strokeStyle = '#e9b93a';
+        c.lineCap = 'round';
+        for (const sg of [-1, 1]) {
+          for (let i = 0; i < 3; i++) {
+            c.lineWidth = H * (0.09 - i * 0.02);
+            c.beginPath();
+            c.moveTo(W / 2 + sg * W * 0.48, H * (0.98 - i * 0.16));
+            c.quadraticCurveTo(W / 2 + sg * W * 0.34, H * (0.9 - i * 0.16), W / 2 + sg * W * (0.24 + i * 0.03), H * (0.52 - i * 0.12));
+            c.stroke();
+          }
+        }
+        c.fillStyle = '#ffffff';
         c.textAlign = 'center';
         c.textBaseline = 'middle';
-        c.font = FONT(Math.round(H * 0.9));
-        c.fillText(String(place), W / 2, H / 2 + 2);
+        c.font = FONT(Math.round(H * 0.78));
+        c.fillText(String(place), W / 2, H / 2 + 3);
       },
     });
     w.zone({
-      id: `step${place}`, label: `시상대 ${label}`, prio: 5, minX: PX - 0.7, maxX: PX + 0.7, minZ: z - 0.68, maxZ: z + 0.68, minY: h - 0.1,
+      id: `step${place}`, label: `시상대 ${label}`, prio: 5, minX: PX - 0.75, maxX: PX + 0.75, minZ: z - 0.8, maxZ: z + 0.8, minY: h - 0.1,
       onEnter: (a2) => {
         a2.medal(place);
         a2.sfx('ding');
@@ -433,27 +472,53 @@ export function buildArena(api) {
       onLeave: (a2) => a2.medal(0),
     });
   }
+  // the truss frame the backdrop hangs in
+  const TZ = 4.6;
+  const TH = 6.4;
+  const truss = 0xb9bfc8;
+  for (const z of [-TZ, TZ]) {
+    for (const [dx, dz] of [[-0.14, -0.14], [0.14, -0.14], [-0.14, 0.14], [0.14, 0.14]]) w.cyl({ x: HX - 0.75 + dx, z: z + dz, r: 0.022, h: TH, color: truss, seg: 6 });
+    for (let y = 0.3; y < TH; y += 0.55) w.box({ x: HX - 0.75, z, y, w: 0.3, h: 0.02, d: 0.3, color: truss });
+  }
+  for (const [dx, dy] of [[-0.14, 0], [0.14, 0], [-0.14, 0.28], [0.14, 0.28]]) w.box({ x: HX - 0.75 + dx, z: 0, y: TH - 0.3 + dy, w: 0.04, h: 0.04, d: TZ * 2 + 0.4, color: truss });
   w.logoSlot('event', w.sign({
-    x: HX - 0.02, y: 2.0, z: 0, w: 9.4, h: 3.7, rotY: -Math.PI / 2, res: 64,
+    x: HX - 0.7, y: 0.25, z: 0, w: TZ * 2 - 0.5, h: TH - 0.7, rotY: -Math.PI / 2, res: 150,
     draw: (c, W, H, img) => {
-      c.fillStyle = '#0d1b2e';
+      const g = c.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#16308c');
+      g.addColorStop(1, '#0f2470');
+      c.fillStyle = g;
       c.fillRect(0, 0, W, H);
-      c.fillStyle = '#f2c230';
-      c.fillRect(0, 0, W, H * 0.04);
+      // two gold sweeps across the lower half
+      c.lineCap = 'round';
+      for (const [col, lw, dy] of [['#e9b93a', H * 0.085, 0], ['#f4d166', H * 0.03, H * 0.075]]) {
+        c.strokeStyle = col;
+        c.lineWidth = lw;
+        c.beginPath();
+        c.moveTo(-W * 0.05, H * 0.56 + dy);
+        c.bezierCurveTo(W * 0.3, H * 0.34 + dy, W * 0.62, H * 0.66 + dy, W * 1.05, H * 0.86 + dy);
+        c.stroke();
+      }
       c.textAlign = 'center';
       c.textBaseline = 'middle';
-      for (let r = 0; r < 3; r++) {
-        for (let k = 0; k < 5; k++) {
-          const x = W * (0.1 + k * 0.2);
-          const y = H * (0.22 + r * 0.3);
-          if (img && (r + k) % 2 === 0) {
-            c.fillStyle = '#ffffff';
-            c.fillRect(x - W * 0.085, y - H * 0.11, W * 0.17, H * 0.22);
-            drawContain(c, img, x - W * 0.085, y - H * 0.11, W * 0.17, H * 0.22, 4);
-          } else {
-            c.fillStyle = (r + k) % 2 === 0 ? '#f4f6f8' : '#5f7896';
-            fitText(c, (r + k) % 2 === 0 ? 'PODIUM' : 'JIU-JITSU', x, y, W * 0.17, Math.round(H * 0.085));
-          }
+      c.fillStyle = '#ffffff';
+      fitText(c, 'ASIAN', W / 2, H * 0.105, W * 0.42, Math.round(H * 0.15));
+      c.fillStyle = '#f2c22e';
+      fitText(c, 'JIU-JITSU 2027', W / 2, H * 0.215, W * 0.46, Math.round(H * 0.085));
+      c.fillStyle = '#ffffff';
+      fitText(c, 'C H A M P I O N S H I P', W / 2, H * 0.29, W * 0.42, Math.round(H * 0.042), 700);
+      // the event logo in the two upper corners
+      for (const x of [W * 0.03, W * 0.79]) {
+        if (img) {
+          c.fillStyle = '#ffffff';
+          c.fillRect(x, H * 0.04, W * 0.18, H * 0.17);
+          drawContain(c, img, x, H * 0.04, W * 0.18, H * 0.17, 6);
+        } else {
+          c.strokeStyle = 'rgba(255,255,255,.5)';
+          c.lineWidth = 3;
+          c.strokeRect(x, H * 0.04, W * 0.18, H * 0.17);
+          c.fillStyle = 'rgba(255,255,255,.75)';
+          fitText(c, '로고 자리', x + W * 0.09, H * 0.125, W * 0.15, Math.round(H * 0.035), 700);
         }
       }
     },
@@ -485,7 +550,7 @@ export function buildArena(api) {
       c.fillStyle = '#f4f6f8';
       c.textAlign = 'left';
       c.textBaseline = 'middle';
-      ['몸 푸는 곳  왼쪽', '빈 매트  MAT 1 · 2', '시상대  동쪽 끝'].forEach((t, i) => fitText(c, t, W * 0.07, H * (0.22 + i * 0.28), W * 0.86, Math.round(H * 0.17), 700));
+      ['몸 푸는 곳  왼쪽', '빈 매트  MAT 1 ~ 4', '시상대  동쪽 끝'].forEach((t, i) => fitText(c, t, W * 0.07, H * (0.22 + i * 0.28), W * 0.86, Math.round(H * 0.17), 700));
     },
   });
   const ring = [{ x: -22, z: -15.5 }, { x: 22, z: -15.5 }, { x: 22, z: 15.5 }, { x: -22, z: 15.5 }];

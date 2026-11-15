@@ -3,8 +3,9 @@
 import { Game } from './game.js';
 import { initBoard } from './board.js';
 import { initGuest } from './guestui.js';
-import { KINDS, KIND_OBJ, KIND_SUBJ } from './tech.js';
-import { BELTS, GIS, clamp } from './util.js';
+import { KINDS, KIND_OBJ } from './tech.js';
+import { BELTS, GIS, clamp, mayBlack, maxStripes } from './util.js';
+import { drawCard, cleanAge } from './card.js';
 import { meetUrl, hostKind } from './relay.js';
 import { stage, point, box } from './stage.js';
 
@@ -44,9 +45,11 @@ export function initUI(data) {
   if (!PLACE[sel.place]) sel.place = 'gym';
   if (!BELTS[sel.belt]) sel.belt = 'white';
   if (!GIS[sel.gi]) sel.gi = 'white';
-  sel.stripes = clamp(parseInt(sel.stripes, 10) || 0, 0, 4);
   sel.name = String(sel.name || '').slice(0, 12);
+  if (sel.belt === 'black' && !mayBlack(sel.name)) sel.belt = 'brown'; // the black belt is kept for three names
+  sel.stripes = clamp(parseInt(sel.stripes, 10) || 0, 0, maxStripes(sel.belt));
 
+  const RULE_TEXT = { white: '5판 3선승', blue: '6판 4선승', purple: '7판 4선승', brown: '8판 5선승', black: '10판 6선승' };
   const toasts = $('#toasts');
   const toast = (msg, ms = 3000) => {
     const el = document.createElement('div');
@@ -60,11 +63,12 @@ export function initUI(data) {
   /* ---------- big button and the label above the buttons ---------- */
   const mainBtn = $('#b-main');
   const chip = $('#chip');
-  const hud = { prompt: null, partner: null, onMat: false, mash: null, race: null };
-  // the two lists that open from the pad: techniques and things to say
-  const techBtn = $('.pb[data-pop="tech"]');
+  const hud = { prompt: null, partner: null, onMat: false, race: null, ask: false };
+  // the sparring button, and the two lists that open from the pad: drills and things to say
+  const sparBtn = $('#b-spar');
+  const techBtn = $('.pb[data-pop="drill"]');
   const sayBtn = $('.pb[data-pop="say"]');
-  const popTech = $('#pop-tech');
+  const popTech = $('#pop-drill');
   const popSay = $('#pop-say');
   const closePops = () => {
     popTech.hidden = true;
@@ -81,13 +85,12 @@ export function initUI(data) {
   const paintPad = () => {
     const it = hud.prompt;
     const racing = hud.race && hud.race.phase !== 'done';
-    mainBtn.textContent = hud.mash ? '연타!' : racing ? (hud.race.phase === 'go' ? '새우!' : '준비') : it ? it.short || '사용' : '인사';
-    mainBtn.classList.toggle('hot', !!it || !!hud.mash || (racing && hud.race.phase === 'go'));
+    mainBtn.textContent = racing ? (hud.race.phase === 'go' ? '새우!' : '준비') : it ? it.short || '사용' : '인사';
+    mainBtn.classList.toggle('hot', !!it || (racing && hud.race.phase === 'go'));
     const ready = !!hud.partner && hud.onMat;
-    techBtn.classList.toggle('ready', ready);
-    techBtn.classList.toggle('off', !ready);
-    if (!ready && !popTech.hidden) closePops();
-    $$('.pb[data-act="roll"], .pb[data-act="shrimp"], .pb[data-act="bridge"], .pb[data-act="standup"]').forEach((b) => b.classList.toggle('off', !hud.onMat));
+    sparBtn.classList.toggle('ready', ready || hud.ask);
+    sparBtn.classList.toggle('off', !ready && !hud.ask);
+    $$('[data-act="roll"], [data-act="rollb"], [data-act="scoot"], [data-act="shrimp"], [data-act="bridge"], [data-act="standup"]').forEach((b) => b.classList.toggle('off', !hud.onMat));
     let label = '';
     if (it) label = typeof it.label === 'function' ? it.label() : it.label;
     else if (hud.partner) label = hud.onMat ? `상대: ${hud.partner.name}` : `상대: ${hud.partner.name} · 매트 위에서만`;
@@ -99,19 +102,17 @@ export function initUI(data) {
   const rps = $('#rps');
   const bar = $('#rps-bar');
   let barKey = '';
-  // the strip with the score, clock and position of a points match
-  const paintMatch = (mt) => {
-    $('#matchbar').hidden = !mt;
-    if (!mt) return;
-    $('#mt-me').textContent = String(mt.me);
-    $('#mt-them').textContent = String(mt.them);
-    $('#mt-name').textContent = mt.name;
-    $('#mt-clock').textContent = `${(mt.left / 60) | 0}:${String(mt.left % 60).padStart(2, '0')}`;
-    const word = mt.end ? { win: '승리', lose: '패배', draw: '무승부' }[mt.end] || '' : mt.phase === 'sub' ? '서브미션!' : '';
-    $('#mt-pos').textContent = word || (mt.top ? `${mt.pos} · ${mt.top}` : mt.pos);
-    // the narrow bar on a phone: a short name, and a mark beside the points of whoever is on top
-    $('#mt-short').textContent = word || { stand: '스탠딩', guard: '가드', side: '사이드', mount: '마운트' }[mt.key] || mt.pos;
-    $('#matchbar').dataset.top = word || mt.topMe == null ? '' : mt.topMe ? 'me' : 'them';
+  // the strip with the rounds won on each side, which round this is and the rule
+  const paintMatch = (sp) => {
+    $('#matchbar').hidden = !sp;
+    if (!sp) return;
+    $('#mt-me').textContent = String(sp.me);
+    $('#mt-them').textContent = String(sp.them);
+    $('#mt-name').textContent = sp.name;
+    const word = sp.end ? { win: '승리', lose: '패배', draw: '무승부' }[sp.end] || '' : '';
+    $('#mt-clock').textContent = word || `${sp.n}판째`;
+    $('#mt-pos').textContent = sp.rule;
+    $('#mt-short').textContent = sp.rule; // the narrow bar on a phone
   };
   const showDuel = (d) => {
     if (!d) {
@@ -121,36 +122,42 @@ export function initUI(data) {
       return;
     }
     closePops();
-    const isMatch = d.kind === 'match';
-    paintMatch(d.match || null);
-    // in a points match the hands are only shown while hands are being thrown
-    if (isMatch && d.phase !== 'wait' && d.phase !== 'pick' && d.phase !== 'reveal') {
+    paintMatch(d.spar || null);
+    // the hands are only shown while hands are being thrown
+    if (d.phase !== 'wait' && d.phase !== 'pick' && d.phase !== 'reveal') {
       rps.hidden = true;
       barKey = '';
       return;
     }
-    rps.hidden = false;
-    rps.classList.toggle('match', isMatch);
-    $('#rps-title').hidden = isMatch && d.phase !== 'wait'; // the bar already says what is going on
-    const kind = isMatch ? '한 판' : KINDS[d.kind];
-    $('#rps-title').textContent = isMatch
-      ? (d.phase === 'wait' ? `${d.name}에게 한 판 신청` : `한 판 · ${d.round}번째 가위바위보`)
-      : `${d.mine ? `${d.name}에게 ${kind} 승부` : `${d.name}의 ${kind} 승부`}${d.round > 1 ? ` · ${d.round}번째` : ''}`;
-    $('#rps-cancel').textContent = isMatch && d.phase !== 'wait' ? '기권' : '그만두기';
+    const waiting = d.phase === 'wait';
     const picking = d.phase === 'pick';
+    rps.hidden = false;
+    rps.classList.toggle('match', !waiting);
+    $('#rps-title').hidden = !waiting; // once it is on, the bar already says what is going on
+    $('#rps-title').textContent = `${d.name} 님에게 스파링 신청 · ${d.rule}`;
+    $('#rps-cancel').textContent = waiting ? '취소' : '기권';
+    $('#rps-techs').hidden = !picking;
     $('#rps-hands').hidden = !picking;
     $('#rps-versus').hidden = d.phase !== 'reveal';
-    $('#rps-barwrap').hidden = !picking;
+    $('#rps-barwrap').hidden = d.phase === 'reveal';
     $('#rps-cancel').hidden = d.phase === 'reveal';
     $$('.hand').forEach((b) => {
       b.setAttribute('aria-pressed', String(d.pick === b.dataset.hand));
       b.disabled = !!d.pick;
     });
+    $$('#rps-techs button').forEach((b) => {
+      b.setAttribute('aria-pressed', String(d.tech === b.dataset.tech));
+      b.disabled = !!d.pick; // the technique is fixed once the hand is thrown
+    });
+    // (phones) one button that steps through the techniques, until the hand is thrown
+    const choosing = picking && !d.pick;
+    rps.classList.toggle('choose', choosing);
+    $('#rps-cycle').hidden = !choosing;
+    $('#rps-cycle').textContent = `기술 · ${KINDS[d.tech]} ⟳`;
     const status = $('#rps-status');
-    if (d.phase === 'wait') status.textContent = '상대의 응답을 기다리는 중…';
-    else if (picking) {
-      status.textContent = d.pick ? '상대가 고르는 중…' : isMatch ? '이기면 다음 포지션!' : '가위바위보! 이긴 쪽이 기술을 겁니다';
-      const key = `${d.round}`;
+    if (waiting || picking) {
+      status.textContent = waiting ? '상대의 수락을 기다리는 중…' : d.pick ? '상대가 고르는 중…' : `이기면 ${KINDS[d.tech]}!`;
+      const key = `${d.phase}${d.round}`;
       if (key !== barKey) {
         barKey = key;
         bar.style.transition = 'none';
@@ -163,10 +170,25 @@ export function initUI(data) {
       barKey = '';
       $('#rps-me').textContent = HANDS[d.pick] || '';
       $('#rps-them').textContent = HANDS[d.their] || '';
-      status.textContent = isMatch
-        ? (d.result > 0 ? '이겼습니다!' : d.result < 0 ? '졌습니다.' : '비겼습니다. 다시!')
-        : d.result > 0 ? `이겼습니다! ${KIND_OBJ[d.kind]} 겁니다` : d.result < 0 ? `졌습니다. 상대의 ${KIND_SUBJ[d.kind]} 들어옵니다` : '비겼습니다. 다시!';
+      status.textContent = d.result > 0 ? `이겼습니다! ${KIND_OBJ[d.tech]} 겁니다` : d.result < 0 ? '졌습니다. 상대의 기술이 들어옵니다' : '비겼습니다. 다시!';
     }
+  };
+  // somebody asks this player to spar: a = { name, rule, left, total } while they ask, else null
+  const askBox = $('#sparask');
+  const askBar = $('#sparask-bar');
+  const showAsk = (a) => {
+    const was = hud.ask;
+    hud.ask = !!a;
+    askBox.hidden = !a;
+    if (was !== hud.ask) paintPad();
+    if (!a || was) return;
+    closePops();
+    $('#sparask-text').textContent = `${a.name} 님이 스파링을 신청했습니다 · ${a.rule}`;
+    askBar.style.transition = 'none';
+    askBar.style.transform = `scaleX(${a.left / a.total})`;
+    void askBar.offsetWidth;
+    askBar.style.transition = `transform ${a.left}s linear`;
+    askBar.style.transform = 'scaleX(0)';
   };
 
   const menu = $('#menu');
@@ -310,6 +332,7 @@ export function initUI(data) {
     partner: (tg) => { hud.partner = tg; if (tg) hud.onMat = tg.onMat; paintPad(); },
     mat: (on) => { hud.onMat = on; paintPad(); },
     duel: showDuel,
+    ask: showAsk,
     open: (what) => {
       if (what === 'master') openModal('modal-master');
       else if (what === 'time' && desk) desk.openTime();
@@ -325,26 +348,12 @@ export function initUI(data) {
       else if ($$('.modal').some((m) => !m.hidden)) closeModals();
       else toggleMenu();
     },
-    // the struggle inside a technique: m = { role, a, d, left, margin } while it lasts, else null
-    mash: (m) => {
-      const was = !!hud.mash;
-      hud.mash = m;
-      if (was !== !!m) paintPad();
-      $('#mash').hidden = !m && !hud.race;
-      if (!m) return;
-      $('#mash-l').textContent = '탈출';
-      $('#mash-r').textContent = '탭';
-      $('#mash-timewrap').hidden = false;
-      $('#mash-text').textContent = m.role === 'a' ? '연타해서 조이세요!' : '연타해서 빠져나오세요!';
-      $('#mash-bar').style.width = `${clamp((m.a + m.margin - m.d) / (2 * m.margin), 0, 1) * 100}%`;
-      $('#mash-time').style.transform = `scaleX(${m.left})`;
-    },
     // a shrimp race: r = { phase: 'count' | 'go' | 'done', time, prog, n } while it lasts, else null
     race: (r) => {
       const was = hud.race ? hud.race.phase : '';
       hud.race = r;
       if (was !== (r ? r.phase : '')) paintPad();
-      $('#mash').hidden = !r && !hud.mash;
+      $('#mash').hidden = !r;
       if (!r) return;
       $('#mash-l').textContent = '출발';
       $('#mash-r').textContent = '도착 6 m';
@@ -392,22 +401,41 @@ export function initUI(data) {
       Array.from(b.querySelectorAll('.bar i')).forEach((i, k) => i.classList.toggle('on', on && k < sel.stripes));
     });
     $$('.gi').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.gi === sel.gi)));
+    const black = sel.belt === 'black';
+    sel.stripes = clamp(sel.stripes, 0, maxStripes(sel.belt));
+    $('#stripes-label').textContent = black ? '단(줄)' : '그랄(줄)';
     $('#stripes-val').textContent = String(sel.stripes);
     $('#stripes-minus').disabled = sel.stripes <= 0;
-    $('#stripes-plus').disabled = sel.stripes >= 4;
+    $('#stripes-plus').disabled = sel.stripes >= maxStripes(sel.belt);
     $('#enter').textContent = `${PLACE[sel.place].short}으로 입장`;
-    $('#summary').textContent = `${BELTS[sel.belt].name} ${sel.stripes}그랄 · ${GIS[sel.gi].name} 도복 · 성인부 경기 ${BELTS[sel.belt].minutes}분`;
+    $('#summary').textContent = `${BELTS[sel.belt].name} ${sel.stripes}${black ? '단' : '그랄'} · ${GIS[sel.gi].name} 도복 · 스파링 ${RULE_TEXT[sel.belt]}`;
     if (game.ok) game.setSelection(sel);
     store.set('bjjmeta.sel', JSON.stringify(sel));
   };
   $$('.place').forEach((b) => b.addEventListener('click', () => { sel.place = b.dataset.place; paint(); }));
-  $$('.belt').forEach((b) => b.addEventListener('click', () => { sel.belt = b.dataset.belt; paint(); }));
+  $$('.belt').forEach((b) => b.addEventListener('click', () => {
+    // the black belt is kept for three names: anyone else is told so and the choice is not taken
+    if (b.dataset.belt === 'black' && !mayBlack(sel.name)) {
+      openModal('modal-black');
+      return;
+    }
+    sel.belt = b.dataset.belt;
+    paint();
+  }));
   $$('.gi').forEach((b) => b.addEventListener('click', () => { sel.gi = b.dataset.gi; paint(); }));
-  $('#stripes-minus').addEventListener('click', () => { sel.stripes = clamp(sel.stripes - 1, 0, 4); paint(); });
-  $('#stripes-plus').addEventListener('click', () => { sel.stripes = clamp(sel.stripes + 1, 0, 4); paint(); });
+  $('#stripes-minus').addEventListener('click', () => { sel.stripes = clamp(sel.stripes - 1, 0, maxStripes(sel.belt)); paint(); });
+  $('#stripes-plus').addEventListener('click', () => { sel.stripes = clamp(sel.stripes + 1, 0, maxStripes(sel.belt)); paint(); });
   const nick = $('#nick');
   nick.value = sel.name;
-  nick.addEventListener('input', () => { sel.name = nick.value.trim().slice(0, 12); paint(); });
+  const setName = (v) => {
+    sel.name = String(v || '').trim().slice(0, 12);
+    if (sel.belt === 'black' && !mayBlack(sel.name)) {
+      sel.belt = 'brown';
+      toast('검은 띠는 김상인, 양동건, 서현찬 세 분만 고를 수 있어 갈색 띠로 바꿨습니다', 4200);
+    }
+    paint();
+  };
+  nick.addEventListener('input', () => setName(nick.value));
 
   /* ---------- landscape on phones ----------
      While playing on a phone the stage is laid out in landscape. If the browser's own view is
@@ -500,8 +528,8 @@ export function initUI(data) {
     hud.prompt = null;
     hud.partner = null;
     hud.onMat = false;
-    hud.mash = null;
     hud.race = null;
+    showAsk(null);
     $('#mash').hidden = true;
     showDuel(null);
     // lay the stage out the way it will be played before the map is built, so that the opening
@@ -512,6 +540,11 @@ export function initUI(data) {
     paintPad();
     showHud();
     paintPeople();
+    // the arena hands out an athlete card at the door, once for each look the player comes in with
+    if (sel.place === 'arena' && !at) {
+      const o = cardSaved();
+      if (!(o && o.key === cardKey())) setTimeout(() => { if (game.mode === 'play' && sel.place === 'arena' && !$$('.modal').some((m) => !m.hidden)) openCard(); }, 700);
+    }
     // Tell once how to hold the phone, if the picture is still turned by CSS a moment later.
     if (!view.told) {
       view.told = true;
@@ -584,14 +617,7 @@ export function initUI(data) {
 
   /* ---------- buttons ---------- */
   $$('.pb[data-act]').forEach((b) => tap(b, (e) => { e.preventDefault(); closePops(); game.act(b.dataset.act); }));
-  tap(techBtn, (e) => {
-    e.preventDefault();
-    if (hud.partner && hud.onMat) togglePop(popTech, techBtn);
-    else {
-      closePops();
-      toast(hud.partner ? '기술은 매트 위에서 걸 수 있습니다' : '매트 위에서 상대에게 붙으면 기술을 고를 수 있습니다');
-    }
-  });
+  tap(techBtn, (e) => { e.preventDefault(); togglePop(popTech, techBtn); });
   tap(sayBtn, (e) => { e.preventDefault(); togglePop(popSay, sayBtn); });
   $$('.pop button').forEach((b) => tap(b, (e) => {
     e.preventDefault();
@@ -606,7 +632,15 @@ export function initUI(data) {
   tap(mainBtn, (e) => { e.preventDefault(); closePops(); game.main(); });
   tap(chip, (e) => { e.preventDefault(); if (hud.prompt) game.main(); });
   $$('.hand').forEach((b) => tap(b, (e) => { e.preventDefault(); game.sim.pick(b.dataset.hand); }));
+  $$('#rps-techs button').forEach((b) => tap(b, (e) => { e.preventDefault(); game.sim.setTech(b.dataset.tech); }));
+  tap($('#rps-cycle'), (e) => {
+    e.preventDefault();
+    const list = Object.keys(KINDS);
+    game.sim.setTech(list[(list.indexOf(game.sim.tech) + 1) % list.length]);
+  });
   $('#rps-cancel').addEventListener('click', () => game.sim.cancelDuel());
+  tap($('#sparask-yes'), (e) => { e.preventDefault(); game.sim.answer(true); });
+  tap($('#sparask-no'), (e) => { e.preventDefault(); game.sim.answer(false); });
   hudEl.addEventListener('contextmenu', (e) => e.preventDefault());
   const hold = (el, dir) => {
     const off = () => { game.spin = 0; };
@@ -804,24 +838,132 @@ export function initUI(data) {
   };
   $('#m-photo').addEventListener('click', () => takePhoto());
   $('#photo-again').addEventListener('click', () => takePhoto());
-  $('#photo-save').addEventListener('click', () => {
-    if (saver && photoBlob) {
-      saver.save({ filename: $('#photo-save').dataset.name || 'jiujitsu.png', data: photoBlob }).then(
-        () => toast('사진을 저장했습니다'),
-        (err) => { if (!err || err.code !== 'declined') toast('저장하지 못했습니다. 사진을 길게 눌러 저장해 주세요', 4200); },
+  // Save a picture this page made: through the page around it where there is one, else as a download.
+  const saveImage = (blob, src, name) => {
+    if (saver && blob) {
+      saver.save({ filename: name, data: blob }).then(
+        () => toast('저장했습니다'),
+        (err) => { if (!err || err.code !== 'declined') toast('저장하지 못했습니다. 그림을 길게 눌러 저장해 주세요', 4200); },
       );
       return;
     }
     try {
       const a = document.createElement('a');
-      a.href = $('#photo-img').src;
-      a.download = $('#photo-save').dataset.name || 'jiujitsu.png';
+      a.href = src;
+      a.download = name;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      toast('사진을 저장했습니다. 보이지 않으면 사진을 길게 눌러 저장해 주세요', 4200);
-    } catch (e) { toast('여기서는 바로 저장할 수 없습니다. 사진을 길게 눌러 저장해 주세요', 4200); }
+      toast('저장했습니다. 보이지 않으면 그림을 길게 눌러 저장해 주세요', 4200);
+    } catch (e) { toast('여기서는 바로 저장할 수 없습니다. 그림을 길게 눌러 저장해 주세요', 4200); }
+  };
+  $('#photo-save').addEventListener('click', () => saveImage(photoBlob, $('#photo-img').src, $('#photo-save').dataset.name || 'jiujitsu.png'));
+
+  /* ---------- athlete card ----------
+     Walking into the arena, the player fills in a card: name, belt, age. It is drawn here (card.js)
+     with a picture of their character. What was typed is kept in this browser only; the age never
+     goes anywhere else. */
+  let cardBlob = null;
+  let cardUrl = '';
+  const cardKey = () => `${sel.name}|${sel.belt}|${sel.stripes}|${sel.gi}`;
+  const cardSaved = () => {
+    try {
+      const o = JSON.parse(store.get('bjjmeta.card') || 'null');
+      return o && typeof o === 'object' && cleanAge(o.age) ? o : null;
+    } catch (e) { return null; }
+  };
+  const cardForm = () => {
+    const o = cardSaved();
+    $('#t-card').textContent = '선수카드 발급';
+    $('#card-form').hidden = false;
+    $('#card-done').hidden = true;
+    $('#card-warn').hidden = true;
+    $('#card-name').value = sel.name;
+    $('#card-age').value = o ? String(o.age) : '';
+    const black = sel.belt === 'black';
+    $('#card-belt').innerHTML = '';
+    const sw = document.createElement('i');
+    sw.style.background = BELTS[sel.belt].css;
+    $('#card-belt').appendChild(sw);
+    $('#card-belt').appendChild(document.createTextNode(`${BELTS[sel.belt].name} ${sel.stripes}${black ? '단' : '그랄'} · 띠는 메뉴의 ‘띠 · 도복 바꾸기’에서 고릅니다`));
+  };
+  const cardShow = (age) => {
+    const d = new Date();
+    const day = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+    const cv = drawCard({ name: sel.name || '수련생', belt: sel.belt, stripes: sel.stripes, age, day, portrait: game.portrait(), logo: game.logos.event });
+    $('#t-card').textContent = '선수카드';
+    $('#card-form').hidden = true;
+    $('#card-done').hidden = false;
+    cardBlob = null;
+    if (cardUrl) { try { URL.revokeObjectURL(cardUrl); } catch (e) { /* ignore */ } }
+    cardUrl = '';
+    const put = (blob) => {
+      cardBlob = blob || null;
+      try {
+        if (blob) {
+          cardUrl = URL.createObjectURL(blob);
+          $('#card-img').src = cardUrl;
+        } else $('#card-img').src = cv.toDataURL('image/png');
+      } catch (e) { /* the card stays as it was */ }
+    };
+    try {
+      if (cv.toBlob) cv.toBlob((b) => put(b), 'image/png');
+      else put(null);
+    } catch (e) { put(null); }
+    // inside a claude.ai page a file is handed to the page around this one, which asks first
+    $('#card-save').hidden = framed() && !saver;
+    if (framed() && !saver) {
+      let ask = null;
+      try { ask = window.claude.use('downloads'); } catch (e) { ask = null; }
+      Promise.resolve(ask).then((dl) => {
+        if (!dl || typeof dl.save !== 'function') return;
+        saver = dl;
+        $('#card-save').hidden = false;
+      }, () => {});
+    }
+  };
+  // The card for who the player is now: the one already issued, or the form to issue one.
+  const openCard = () => {
+    if (!game.ok || game.mode !== 'play') return;
+    const o = cardSaved();
+    openModal('modal-card');
+    if (o && o.key === cardKey()) cardShow(o.age);
+    else cardForm();
+  };
+  $('#card-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const warn = $('#card-warn');
+    const name = $('#card-name').value.trim().slice(0, 12);
+    const age = cleanAge($('#card-age').value);
+    warn.hidden = true;
+    if (!name) {
+      warn.textContent = '이름을 적어 주세요.';
+      warn.hidden = false;
+      return;
+    }
+    if (!age) {
+      warn.textContent = '나이를 숫자로 적어 주세요 (4~99).';
+      warn.hidden = false;
+      return;
+    }
+    if (sel.belt === 'black' && !mayBlack(name)) {
+      warn.textContent = '검은 띠는 김상인, 양동건, 서현찬 세 분만 쓸 수 있습니다. 추가 요청은 개발자에게 요청해 주세요.';
+      warn.hidden = false;
+      return;
+    }
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    if (name !== sel.name) {
+      nick.value = name;
+      setName(name);
+    }
+    store.set('bjjmeta.card', JSON.stringify({ key: cardKey(), age }));
+    cardShow(age);
+    game.sound.sfx('ding');
+    toast('선수카드가 발급되었습니다');
   });
+  $('#card-redo').addEventListener('click', () => cardForm());
+  $('#card-save').addEventListener('click', () => saveImage(cardBlob, $('#card-img').src, 'athlete-card.png'));
+  $('#m-card').addEventListener('click', () => { toggleMenu(false); openCard(); });
   $('#photo-share').addEventListener('click', () => {
     try {
       const f = new File([photoBlob], $('#photo-save').dataset.name || 'jiujitsu.png', { type: 'image/png' });

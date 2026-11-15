@@ -184,7 +184,7 @@ export function initGuest({ guest, openModal, toast, sel }) {
     listView.hidden = true;
     padView.hidden = false;
     modal.dataset.sticky = '1'; // a stray touch beside the pad must not throw the drawing away
-    $('#gb-as').textContent = `${s.name || '수련생'} ${SHORT[s.belt] || BELTS[s.belt].name} ${s.stripes}그랄로 남깁니다`;
+    $('#gb-as').textContent = `${s.name || '수련생'} ${SHORT[s.belt] || BELTS[s.belt].name} ${s.stripes}${s.belt === 'black' ? '단으' : '그랄'}로 남깁니다`;
     setInk(0);
     setPen(1);
     inkLeft();

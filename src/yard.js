@@ -1,8 +1,10 @@
 /* global THREE */
 // The terrace behind the dojo. The dojo is on the sixth floor, so the mat side of the room opens
 // through folding glass doors onto a deck and a turf lawn on the roof of the floors below, with a
-// glass railing round it and the apartment blocks of the neighbourhood rising beyond. The sky and
-// the light follow the hour (sky.js): by night the blocks have their lights on.
+// glass railing round it. Beyond it rise the towers the real terrace looks at: the tall slender
+// white towers with orange stripes of 전주 SK리더스뷰 to the north, and the charcoal and white
+// towers of 유탑유블레스 to either side (plain shapes and plain lettering, no logos). It is shown
+// by night, with the windows lit (sky.js; another hour can be asked for in the address).
 import { GEO, FONT, fitText, pick, rand } from './util.js';
 
 // o: { X0, X1, Z0, CEIL, door: [x0, x1] the folding-door span, gap: [x0, x1] the part standing open,
@@ -311,14 +313,90 @@ export function buildYard(w, o) {
       tag(x + sx * (len / 2 + 0.42), z, (sx * Math.PI) / 2);
     }
   };
-  block(101, -32, -86, 52, 64, false, 0);
-  block(102, 40, -94, 46, 70, false, 1);
-  block(103, -76, -36, 48, 60, true, 2);
-  block(104, 68, -46, 44, 67, true, 0);
-  block(105, -92, -120, 50, 74, false, 1);
-  block(106, 4, -148, 60, 78, false, 2);
-  block(107, 106, -122, 44, 70, true, 1);
-  block(108, -124, -72, 40, 64, true, 0);
+  block(105, -118, -128, 50, 74, false, 1);
+  block(107, 122, -130, 44, 70, true, 1);
+  block(108, -134, -66, 40, 64, true, 0);
+
+  /* ---------- the towers ---------- */
+  // night: a dim glow of their own, so the stripes and fins read against the dark sky
+  const lit = (color, k) => (sky.dark ? w.mat(color, { emissive: new THREE.Color(color).multiplyScalar(k).getHex() }) : day(color, 0.55));
+  const orange = lit(0xe8762c, 0.5);
+  const white = lit(0xe9e9ea, 0.3);
+  const grey = lit(0x9aa0a8, 0.22);
+  const charcoal = lit(0x2c2f36, 0.25);
+  const crownLight = sky.dark ? w.mat(0xffe2a8, { basic: true }) : white;
+  let dusk = null;
+  if (sky.dark) {
+    const t = w.texFlatsNight();
+    dusk = w.own(new THREE.MeshLambertMaterial({ map: t, color: 0x7d8494, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.85 }));
+  }
+  // lettering near the top of a face, plain text on a transparent plate
+  const nameTag = (text, x, y, z, rotY, wd) => {
+    const t = w.canvasTex(256, 56, (c, W, H) => {
+      c.clearRect(0, 0, W, H);
+      c.fillStyle = sky.dark ? '#fff3d6' : '#3a4048';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      fitText(c, text, W / 2, H / 2 + 2, W * 0.94, Math.round(H * 0.7));
+    });
+    const m = new THREE.Mesh(GEO().plane, w.own(new THREE.MeshBasicMaterial({ map: t.tex, transparent: true, fog: false })));
+    m.scale.set(wd, wd * 0.22, 1);
+    m.position.set(x, y, z);
+    m.rotation.y = rotY;
+    S.add(m);
+  };
+  // Which way a tower at (x, z) faces the terrace: its long front is turned toward it.
+  const facing = (x, z) => (Math.abs(x + 5) > Math.abs(z + 15) ? { ax: 'x', s: x < -5 ? 1 : -1 } : { ax: 'z', s: 1 });
+  // 전주 SK리더스뷰: tall and slender, white and light grey, with orange stripes running the full
+  // height of the front and a stepped crown.
+  const towerSK = (x, z, h, k) => {
+    const wd = 24;
+    const dp = 20;
+    w.texBox({ x, z, y: GY, w: wd, h, d: dp, mat: tints[k % tints.length], tile: 16.8 });
+    const f = facing(x, z);
+    const face = (u, y, ww, hh, mat, out = 0.25) => {
+      // a strip on the front: u metres along it from the middle
+      if (f.ax === 'z') w.box({ x: x + u, z: z + dp / 2 + out / 2, y, w: ww, h: hh, d: out, mat });
+      else w.box({ x: x + f.s * (wd / 2 + out / 2), z: z + u, y, w: out, h: hh, d: ww, mat });
+    };
+    const half = (f.ax === 'z' ? wd : dp) / 2;
+    for (const u of [-half + 0.9, half - 0.9]) face(u, GY, 1.8, h + 2, white, 0.5); // white corner piers
+    for (const u of [-half * 0.42, half * 0.42]) face(u, GY + 6, 1.5, h - 6, orange, 0.35); // the orange stripes
+    face(0, GY + 6, 1.1, h - 6, grey, 0.3);
+    // crown: a set-back top with a light along its edge
+    w.box({ x, z, y: GY + h, w: wd + 0.8, h: 1.2, d: dp + 0.8, mat: white });
+    w.box({ x, z, y: GY + h + 1.2, w: wd * 0.62, h: 7, d: dp * 0.62, mat: grey });
+    w.box({ x, z, y: GY + h + 8.2, w: wd * 0.66, h: 0.5, d: dp * 0.66, mat: crownLight });
+    face(0, GY + h + 2.2, half * 1.1, 4.2, orange, 0.3);
+    if (f.ax === 'z') nameTag('SK 리더스뷰', x, GY + h - 6, z + dp / 2 + 0.7, 0, 17);
+    else nameTag('SK 리더스뷰', x + f.s * (wd / 2 + 0.7), GY + h - 6, z, (f.s * Math.PI) / 2, 15);
+  };
+  // 유탑유블레스: charcoal towers with white vertical bands and a white frame at the top.
+  const towerYU = (x, z, h) => {
+    const wd = 22;
+    const dp = 26;
+    w.texBox({ x, z, y: GY, w: wd, h, d: dp, mat: dusk || tints[2], tile: 16.8 });
+    const f = facing(x, z);
+    const half = (f.ax === 'z' ? wd : dp) / 2;
+    const face = (u, y, ww, hh, mat, out = 0.3) => {
+      if (f.ax === 'z') w.box({ x: x + u, z: z + dp / 2 + out / 2, y, w: ww, h: hh, d: out, mat });
+      else w.box({ x: x + f.s * (wd / 2 + out / 2), z: z + u, y, w: out, h: hh, d: ww, mat });
+    };
+    for (const u of [-half + 1.1, half - 1.1]) face(u, GY, 2.2, h + 1, charcoal, 0.6);
+    for (const u of [-half * 0.36, half * 0.36]) face(u, GY + 8, 1.3, h - 8, white, 0.35);
+    w.box({ x, z, y: GY + h, w: wd + 1, h: 1.4, d: dp + 1, mat: white });
+    w.box({ x, z, y: GY + h + 1.4, w: wd * 0.7, h: 5, d: dp * 0.7, mat: charcoal });
+    w.box({ x, z, y: GY + h + 6.4, w: wd * 0.74, h: 0.45, d: dp * 0.74, mat: crownLight });
+    if (f.ax === 'z') nameTag('유탑 유블레스', x, GY + h - 6, z + dp / 2 + 0.8, 0, 17);
+    else nameTag('유탑 유블레스', x + f.s * (wd / 2 + 0.8), GY + h - 6, z, (f.s * Math.PI) / 2, 19);
+  };
+  towerSK(-47, -98, 142, 0);
+  towerSK(-15, -116, 150, 1);
+  towerSK(19, -102, 142, 2);
+  towerSK(52, -120, 154, 0);
+  towerYU(-76, -46, 112);
+  towerYU(72, -52, 118);
+  towerYU(-104, -88, 106);
 
   return { LX0, LX1, LZ0, WALL, DZ, MAT };
 }

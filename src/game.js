@@ -7,7 +7,12 @@ import { Net } from './net.js';
 import { buildGym } from './gym.js';
 import { buildArena } from './arena.js';
 import { Sound } from './audio.js';
-import { isKind, SLOW } from './tech.js';
+import { isKind, SLOW, KINDS } from './tech.js';
+
+// In sparring these keys choose the technique, in the order the strip shows them.
+export const TECH_KEY_LIST = ['Q', 'W', 'E', 'R', 'A', 'S', 'D'];
+const TECH_KEYS = {};
+Object.keys(KINDS).forEach((k, i) => { TECH_KEYS[`Key${TECH_KEY_LIST[i]}`] = k; });
 import { point } from './stage.js';
 import { Guestbook, browserStore } from './guest.js';
 import { roomCode } from './relay.js';
@@ -81,9 +86,9 @@ export class Game {
       },
       openBelt: () => hooks.openBelt(),
       board: () => this.guest.list(),
-      mash: (m) => hooks.mash && hooks.mash(m),
+      ask: (a) => hooks.ask && hooks.ask(a),
       flash: (f) => hooks.flash && hooks.flash(f),
-      streak: (n) => hooks.streak && hooks.streak(n),
+      streak: (n) => { this._label(); if (hooks.streak) hooks.streak(n); },
       race: (r) => hooks.race && hooks.race(r),
       raceDone: (t) => (hooks.raceDone ? hooks.raceDone(t) : null),
     });
@@ -175,12 +180,12 @@ export class Game {
   }
 
   // How far the picture is lifted, as a part of its height: a little on an upright phone, so that
-  // the character clears the buttons, and more during a points match, so that the two bodies stay
-  // in view above the strip with the hands.
+  // the character clears the buttons, and more during sparring, so that the two bodies stay in view
+  // above the strip with the hands.
   _lift(dt) {
     const d = this.sim.p.duel;
-    const match = this.mode === 'play' && !!d && d.kind === 'match' && d.phase !== 'wait';
-    const want = (this.vh > this.vw * 1.2 ? 0.09 : 0) + (match ? (this.vh < 480 ? 0.18 : 0.06) : 0);
+    const match = this.mode === 'play' && !!d && d.phase !== 'wait';
+    const want = (this.vh > this.vw * 1.2 ? 0.09 : 0) + (match ? (this.vh < 480 ? 0.2 : 0.06) : 0);
     let v = this.liftNow == null ? want : this.liftNow + (want - this.liftNow) * (1 - Math.exp(-5 * dt));
     if (Math.abs(v - want) < 0.002) v = want;
     if (v === this.liftNow) return;
@@ -198,22 +203,29 @@ export class Game {
       if (this.mode !== 'play') return;
       if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
       if (e.repeat) return;
+      if (this.sim.ask) {
+        // somebody is asking to spar: yes or no
+        if (e.code === 'KeyF' || e.code === 'Enter' || e.code === 'Space') this.sim.answer(true);
+        else if (e.code === 'Escape') this.sim.answer(false);
+        if (e.code === 'KeyF' || e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') return;
+      }
       if (this.sim.p.duel) {
-        const hands = { Digit1: 's', Digit2: 'r', Digit3: 'p' };
+        // sparring: 1 2 3 (or the arrows) throw a hand, Q W E R A S D choose the technique
+        const hands = { Digit1: 's', Digit2: 'r', Digit3: 'p', ArrowLeft: 's', ArrowDown: 'r', ArrowUp: 'r', ArrowRight: 'p' };
+        const tk = TECH_KEYS[e.code];
         if (hands[e.code]) this.sim.pick(hands[e.code]);
+        else if (tk) this.sim.setTech(tk);
         else if (e.code === 'Escape') this.sim.cancelDuel();
         return;
       }
       const acts = {
-        Digit1: 'bow', Digit2: 'sit', Digit3: 'shrimp', Digit4: 'roll',
-        Digit5: 'ankle', Digit6: 'arm', Digit7: 'guil', Digit8: 'omo', Digit9: 'rnc',
-        KeyQ: 'ankle', KeyR: 'arm', KeyT: 'guil', KeyF: 'omo', KeyG: 'rnc', KeyY: 'tri', KeyH: 'kim', KeyM: 'match',
-        KeyB: 'bridge', KeyN: 'standup', KeyV: 'shaka',
+        KeyA: 'bow', KeyS: 'roll', KeyD: 'rollb', KeyF: 'spar',
+        KeyQ: 'bridge', KeyW: 'scoot', KeyE: 'standup', KeyR: 'sit', KeyT: 'shrimp', KeyV: 'shaka',
       };
       const says = { KeyZ: 0, KeyX: 1, KeyC: 2 };
       if (acts[e.code]) this.act(acts[e.code]);
       else if (says[e.code] != null) this.say(says[e.code]);
-      else if (e.code === 'KeyE' || e.code === 'Enter' || e.code === 'Space') this.main();
+      else if (e.code === 'Enter' || e.code === 'Space') this.main();
       else if (e.code === 'KeyP') { if (this.h.shoot) this.h.shoot(); }
       else if (e.code === 'Escape') this.h.menu();
     });
@@ -288,7 +300,8 @@ export class Game {
   // Any action button or key.
   act(name) {
     if (this.mode !== 'play') return;
-    if (isKind(name) || name === 'match') this.sim.challenge(name);
+    if (name === 'spar') this.sim.challenge();
+    else if (isKind(name)) this.sim.setTech(name);
     else this.sim.doAction(name);
   }
 
@@ -336,10 +349,6 @@ export class Game {
   // The big button: whatever can be used right here, otherwise a bow.
   main() {
     if (this.mode !== 'play') return;
-    if (this.sim.p.bout) {
-      this.sim.mash(); // during a technique it is the button to hammer
-      return;
-    }
     if (this.sim.p.race) {
       this.sim.stroke(); // and in a shrimp race, every press is one shrimp
       return;
@@ -361,8 +370,8 @@ export class Game {
 
   _input() {
     const k = this.keys;
-    let mx = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
-    let my = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
+    let mx = (k.ArrowRight ? 1 : 0) - (k.ArrowLeft ? 1 : 0);
+    let my = (k.ArrowUp ? 1 : 0) - (k.ArrowDown ? 1 : 0);
     let run = !!(k.ShiftLeft || k.ShiftRight);
     if (this.stick.on) {
       mx = this.stick.x;
@@ -380,6 +389,49 @@ export class Game {
 
   _patch() {
     this.sim.char.drawPatch(this.logos.gym, this.sim.sel.name);
+    this._label();
+  }
+
+  // The player's own name over the head, with a run of wins beside it, as the others see it.
+  _label() {
+    const name = this.sim.sel.name || '수련생';
+    const text = this.sim.streak >= 2 ? `${name} · ${this.sim.streak}연승` : name;
+    if (text === this.labelText) return;
+    this.labelText = text;
+    this.sim.char.setLabel(text);
+  }
+
+  // A picture of the player's character from the front, where it stands, for the athlete card.
+  portrait(w = 284, h = 356) {
+    if (!this.ok || !this.world || this.mode !== 'play') return null;
+    const p = this.sim.p;
+    const ch = this.sim.char;
+    const r = this.renderer;
+    const src = r.domElement;
+    const cam = new THREE.PerspectiveCamera(24, src.width / src.height, 0.1, 200);
+    const fx = Math.sin(p.yaw);
+    const fz = Math.cos(p.yaw);
+    cam.position.set(p.x + fx * 3.1 + fz * 0.5, p.y + 1.02, p.z + fz * 3.1 - fx * 0.5);
+    cam.lookAt(p.x, p.y + 0.82, p.z);
+    const lab = ch.label;
+    const bub = ch.bubble;
+    if (lab) lab.visible = false;
+    if (bub) bub.visible = false;
+    let cv = null;
+    try {
+      r.render(this.world.scene, cam);
+      // the middle of the frame, in the shape asked for
+      const sh = src.height;
+      const sw = Math.min(src.width, sh * (w / h));
+      cv = document.createElement('canvas');
+      cv.width = w * 2;
+      cv.height = h * 2;
+      cv.getContext('2d').drawImage(src, (src.width - sw) / 2, 0, sw, sh, 0, 0, cv.width, cv.height); // at once: the drawing buffer is not kept
+    } catch (e) { cv = null; }
+    if (lab) lab.visible = true;
+    if (bub) bub.visible = true;
+    r.render(this.world.scene, this.camera);
+    return cv;
   }
 
   setLogo(kind, img) {

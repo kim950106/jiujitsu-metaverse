@@ -166,7 +166,7 @@ export function drawStrokes(c, strokes, W, H, x0 = 0, y0 = 0) {
 export function metaLine(e) {
   const d = new Date(e.t);
   const pad = (v) => String(v).padStart(2, '0');
-  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} · ${e.n} ${BELT_SHORT[e.b]} ${e.s}그랄`;
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} · ${e.n} ${BELT_SHORT[e.b]} ${e.s}${e.b === 'black' ? '단' : '그랄'}`;
 }
 
 // Checked entry from whatever arrived, or null. { dead: true, t } marks a removed entry.
@@ -180,7 +180,7 @@ function clean(m, now) {
   const strokes = unpackStrokes(u8);
   if (!strokes) return null;
   return {
-    t, n: cleanName(m.n) || '수련생', b: m.b, s: typeof m.s === 'number' && Number.isFinite(m.s) ? clamp(m.s | 0, 0, 4) : 0,
+    t, n: cleanName(m.n) || '수련생', b: m.b, s: typeof m.s === 'number' && Number.isFinite(m.s) ? clamp(m.s | 0, 0, m.b === 'black' ? 6 : 4) : 0,
     d: m.d, strokes,
   };
 }

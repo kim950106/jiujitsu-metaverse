@@ -2,9 +2,7 @@
 // shared line so the same sequence looks identical for the player, an NPC partner, or another
 // person's avatar.
 //
-// Once the hold is on there is a short struggle: both sides can hammer their button, and if the
-// defender gets far enough ahead the hold is lost instead of ending in a tap. Whoever plays the
-// defender decides that (or the attacker, against an NPC) and the others are told.
+// A technique always ends in a tap: it is put on by whoever won the round of sparring (spar.js).
 import { TECH } from './character.js';
 import { clamp, lerp, ease } from './util.js';
 
@@ -34,8 +32,6 @@ const PI = Math.PI;
 // The tap is shown in slow motion: for `span` seconds of the technique's own time the clock runs
 // at `k` of its speed. Every screen applies the same stretch, so they stay in step.
 export const SLOW = { span: 0.42, k: 0.3 };
-export const MARGIN = 3; // the defender escapes when this many presses ahead of the attacker
-const HELD = 1.5; // seconds to wait for word of the struggle from another screen before assuming a tap
 const MEET = { a: [-0.34, 0, 0], d: [0.34, 0, 0] }; // where the two stand for the slap and bump
 // Where the hips of each body are at two moments: `mid`, when the first move lands, and `hold`, the
 // finishing position. Each entry is [u, s, turn]: metres along the line from the attacker to the
@@ -73,19 +69,11 @@ export class Bout {
     this.oz = o.oz;
     this.yaw = o.yaw; // direction the attacker faces
     this.t = o.t || 0;
-    this.skip = this.t >= TECH.greet; // started without the slap and bump (inside a match)
-    // Started with both already down (from the mount, in a match): the bodies go from where they
-    // are straight into the technique.
-    this.ground = this.t >= TECH.down;
+    this.skip = this.t >= TECH.greet; // started without the slap and bump (a later round of sparring)
     this.done = false;
     this.names = o.names || ['', ''];
-    // The moments of this particular technique. They start as the usual ones; an escape cuts the
-    // hold short and takes the tap away.
-    this.T = Object.assign({}, TECH);
-    this.m = { a: 0, d: 0 }; // button presses during the struggle
-    this.outcome = 0; // 0 not known yet, 1 the defender escaped, 2 the defender tapped
-    this.judge = null; // set on the screen that decides: (bout) => 1 | 2
-    this.waited = 0;
+    this.T = TECH; // the moments of the technique
+    this.outcome = 2; // it ends in a tap
     const ux = Math.sin(this.yaw);
     const uz = Math.cos(this.yaw);
     const along = (p) => (p.x - this.ox) * ux + (p.z - this.oz) * uz;
@@ -95,7 +83,6 @@ export class Bout {
     for (const [act, role] of [[this.a, 'a'], [this.d, 'd']]) {
       act.char.tech = { kind: this.kind, role, t: this.t, T: this.T };
       act.char.play('tech');
-      if (this.ground) act.char.rate = 9; // ease out of the position they were in
     }
     this.update(0);
   }
@@ -108,38 +95,11 @@ export class Bout {
     act.yaw = yaw;
   }
 
-  // The struggle is decided: 1 the defender is out, anything else a tap. Only the first word counts.
-  settle(o) {
-    if (this.outcome || this.done) return;
-    this.outcome = o === 1 ? 1 : 2;
-    if (this.outcome === 1) {
-      const T = this.T;
-      T.hold = TECH.tap;
-      T.up = TECH.tap + (TECH.up - TECH.hold);
-      T.end = T.up + (TECH.end - TECH.up);
-      T.tap = Infinity;
-    }
-  }
-
-  // True while both sides can hammer their button.
-  get open() {
-    return !this.done && !this.outcome && this.t >= TECH.move && this.t < TECH.judge;
-  }
-
   update(dt) {
     if (this.done) return;
     const T = this.T;
     let step = dt;
-    if (!this.outcome && this.t + step >= TECH.judge) {
-      if (this.judge) this.settle(this.judge(this));
-      else if (this.t + step >= TECH.tap - 0.02) {
-        // someone else decides: hold just short of the tap until their word arrives
-        this.waited += dt;
-        if (this.waited > HELD) this.settle(2);
-        else step = Math.max(0, TECH.tap - 0.02 - this.t);
-      }
-    }
-    if (this.outcome === 2 && this.t >= T.tap && this.t < T.tap + SLOW.span) step *= SLOW.k;
+    if (this.t >= T.tap && this.t < T.tap + SLOW.span) step *= SLOW.k;
     this.t += step;
     const t = this.t;
     const M = MOVES[this.kind];
@@ -163,14 +123,9 @@ export class Bout {
       to = M.mid;
       v = seg(TECH.clinch, TECH.down);
     } else if (t < T.hold) {
-      from = this.ground ? start : M.mid;
+      from = M.mid;
       to = M.hold;
       v = seg(TECH.down, TECH.move);
-      if (this.ground && t >= TECH.move && !this.quick) {
-        this.quick = true; // in the hold: the shaking and the tap are followed closely again
-        this.a.char.rate = 20;
-        this.d.char.rate = 20;
-      }
     } else {
       from = M.hold;
       to = apart;
@@ -190,16 +145,11 @@ export class Bout {
     for (const act of [this.a, this.d]) {
       if (act.char.anim === 'tech') act.char.play('loco');
       act.char.tech = null;
-      if (this.ground) act.char.rate = 20;
     }
   }
 
   // True once the defender has started tapping.
   get tapped() {
     return this.t >= this.T.tap;
-  }
-
-  get escaped() {
-    return this.outcome === 1 && this.t >= TECH.tap;
   }
 }

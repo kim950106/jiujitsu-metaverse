@@ -1,12 +1,13 @@
 /* global THREE */
-// Map 1: the dojo, laid out from the two interior photos (white mat by the folding doors, dark
-// rubber-tile conditioning floor, brick front desk, stairs to a loft, black open ceiling with warm
-// LED lines). It is on the sixth floor: the mat side opens onto a roof terrace with a turf lawn
-// and the apartment blocks around it (yard.js).
+// Map 1: the dojo, laid out from the interior photos. The white mat takes most of the room, from
+// the folding doors down to the walkway by the front desk, with waist-high white wall pads, grey
+// wall tiles, a black open ceiling and long warm LED lines running toward the doors. The small
+// conditioning room is in the corner by the entrance. It is on the sixth floor: the mat opens onto
+// a roof terrace with a turf lawn and the apartment towers around it, at night (yard.js).
 import { World, BELTS, FONT, fitText, drawContain, rand, pick } from './util.js';
 import { NPC, randomLook, casualLook } from './npc.js';
 import { buildYard } from './yard.js';
-import { skyAt, hourNow } from './sky.js';
+import { skyAt, hourAsked, NIGHT_HOUR } from './sky.js';
 import { ROWS, timesText, flowText } from './schedule.js';
 import { drawStrokes, metaLine } from './guest.js';
 
@@ -15,9 +16,11 @@ const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Da
 export function buildGym(api) {
   const w = new World('gym', '전주 퍼스트짐 도청점');
   const S = w.scene;
-  // The sky outside follows the hour. Its haze starts beyond anything in the room, so the room
-  // itself keeps its dark, lamp-lit look.
-  const sky = skyAt(hourNow());
+  // Outside it is night: the terrace looks best with the towers lit (an hour can still be asked
+  // for in the address, ?h=9). The haze starts beyond anything in the room, so the room itself
+  // keeps its dark, lamp-lit look.
+  const asked = hourAsked();
+  const sky = skyAt(asked == null ? NIGHT_HOUR : asked);
   S.background = new THREE.Color(sky.fog);
   S.fog = new THREE.Fog(sky.fog, 45, 250);
   const X0 = -12;
@@ -57,7 +60,7 @@ export function buildGym(api) {
   const MX0 = -11.85;
   const MX1 = 2.0;
   const MZ0 = -7.7;
-  const MZ1 = 0.5;
+  const MZ1 = 4.8; // down to the walkway in front of the desk
   const mw = MX1 - MX0;
   const md = MZ1 - MZ0;
   const mcx = (MX0 + MX1) / 2;
@@ -106,8 +109,13 @@ export function buildGym(api) {
   const frame = 0x111214;
   const GAP = [-8.6, -1.0]; // the part of the doors that stands open
 
-  /* ---------- west wall: pad, banner, belt board, wood ---------- */
-  w.box({ x: X0 + 0.06, z: mcz, w: 0.12, h: 2.0, d: md, color: 0xf0eee8 });
+  /* ---------- west wall: waist-high pad, grey tiles above, banner, belt board ---------- */
+  const PAD = 1.15;
+  w.box({ x: X0 + 0.06, z: mcz, w: 0.12, h: PAD, d: md, color: 0xf3f1ec });
+  for (let z = MZ0 + 1.25; z < MZ1 - 0.2; z += 1.25) w.box({ x: X0 + 0.125, z, w: 0.006, h: PAD, d: 0.02, color: 0xcfccc4 });
+  w.texBox({ x: X0 + 0.03, y: PAD, z: 0, w: 0.06, h: CEIL - PAD - 0.5, d: 15.9, tex: w.texTile(), tile: 1.2 });
+  // the dark panel the logo hangs on
+  w.box({ x: X0 + 0.07, y: 2.05, z: -3.9, w: 0.03, h: 2.1, d: 4.3, color: 0x101114 });
   const gymBanner = (c, W, H, img) => {
     c.fillStyle = '#15171a';
     c.fillRect(0, 0, W, H);
@@ -126,7 +134,7 @@ export function buildGym(api) {
       fitText(c, '로고 자리 · 메뉴에서 이미지를 넣을 수 있습니다', W / 2, H * 0.76, W * 0.88, Math.round(H * 0.1), 500);
     }
   };
-  w.logoSlot('gym', w.sign({ x: X0 + 0.02, y: 3.05, z: -3.9, w: 3.6, h: 1.6, rotY: Math.PI / 2, draw: gymBanner }));
+  w.logoSlot('gym', w.sign({ x: X0 + 0.11, y: 3.1, z: -3.9, w: 3.9, h: 1.7, rotY: Math.PI / 2, draw: gymBanner }));
   w.logoSlot('gym', w.sign({ x: -2.2, y: 2.5, z: Z1 - 0.02, w: 2.6, h: 1.16, rotY: Math.PI, draw: gymBanner }));
 
   /* ---------- the yard: folding doors, deck, lawn, apartment blocks ---------- */
@@ -208,10 +216,10 @@ export function buildGym(api) {
   });
   w.interact.push({ x: X0 + 1.1, z: -6.3, r: 1.9, label: '시간표 보기', short: '시간표', action: (a) => a.open('time') });
 
-  w.texBox({ x: X0 + 0.05, z: 4.25, w: 0.1, h: 3.4, d: 7.5, tex: w.texPlank('brown'), tile: 2 });
 
   /* ---------- south wall: door, planks ---------- */
   w.texBox({ x: 8.2, z: Z1 - 0.05, w: 7.6, h: 3.4, d: 0.1, tex: w.texPlank('black'), tile: 2 });
+  w.texBox({ x: -5.0, y: 0, z: Z1 - 0.005, w: 14, h: CEIL - 0.5, d: 0.01, tex: w.texTile(), tile: 1.2 });
   w.box({ x: 3.5, z: Z1 - 0.03, w: 1.8, h: 2.3, d: 0.06, color: 0xbcd3e0, basic: true });
   w.box({ x: 2.56, z: Z1 - 0.06, w: 0.08, h: 2.4, d: 0.12, color: frame });
   w.box({ x: 4.44, z: Z1 - 0.06, w: 0.08, h: 2.4, d: 0.12, color: frame });
@@ -370,41 +378,73 @@ export function buildGym(api) {
     },
   });
 
-  /* ---------- front desk ---------- */
-  w.texBox({ x: 7.5, z: 4.8, w: 3.8, h: 1.05, d: 0.8, tex: w.texBrick('red'), tile: 1, collide: true });
-  w.box({ x: 7.5, z: 4.8, y: 1.05, w: 4.0, h: 0.06, d: 0.95, color: 0x2a2420 });
-  w.cyl({ x: 6.1, z: 4.8, y: 1.11, r: 0.07, h: 0.02, color: 0xb08d4a });
-  w.cyl({ x: 6.1, z: 4.8, y: 1.13, r: 0.012, h: 0.3, color: 0xb08d4a, seg: 8 });
-  w.cyl({ x: 6.1, z: 4.8, y: 1.4, r: 0.1, rTop: 0.04, h: 0.13, color: 0xb08d4a });
-  w.box({ x: 8.3, z: 4.85, y: 1.11, w: 0.36, h: 0.02, d: 0.26, color: 0x202226 });
-  w.box({ x: 8.3, z: 4.97, y: 1.12, w: 0.36, h: 0.24, d: 0.02, color: 0x202226, rotX: 0.25 });
-  for (const y of [1.55, 2.1]) w.box({ x: 7.5, z: Z1 - 0.2, y, w: 2.6, h: 0.05, d: 0.3, color: 0x3a2c1e });
+  /* ---------- front desk: across the room from the entrance, facing the mat ---------- */
+  const DX = -6.6;
+  w.texBox({ x: DX, z: 6.55, w: 3.8, h: 1.05, d: 0.8, tex: w.texBrick('red'), tile: 1, collide: true });
+  w.box({ x: DX, z: 6.55, y: 1.05, w: 4.0, h: 0.06, d: 0.95, color: 0x2a2420 });
+  w.cyl({ x: DX - 1.4, z: 6.55, y: 1.11, r: 0.07, h: 0.02, color: 0xb08d4a });
+  w.cyl({ x: DX - 1.4, z: 6.55, y: 1.13, r: 0.012, h: 0.3, color: 0xb08d4a, seg: 8 });
+  w.cyl({ x: DX - 1.4, z: 6.55, y: 1.4, r: 0.1, rTop: 0.04, h: 0.13, color: 0xb08d4a });
+  w.box({ x: DX + 0.8, z: 6.6, y: 1.11, w: 0.36, h: 0.02, d: 0.26, color: 0x202226 });
+  w.box({ x: DX + 0.8, z: 6.72, y: 1.12, w: 0.36, h: 0.24, d: 0.02, color: 0x202226, rotX: 0.25 });
+  for (const y of [1.55, 2.1]) w.box({ x: DX, z: Z1 - 0.2, y, w: 2.6, h: 0.05, d: 0.3, color: 0x3a2c1e });
   for (let i = 0; i < 6; i++) {
-    const tx = 6.5 + i * 0.42;
+    const tx = DX - 1.0 + i * 0.42;
     const ty = i % 2 ? 2.15 : 1.6;
     w.cyl({ x: tx, z: Z1 - 0.2, y: ty, r: 0.05, h: 0.05, color: 0x3a2c1e, seg: 8 });
     w.cyl({ x: tx, z: Z1 - 0.2, y: ty + 0.05, r: 0.03, rTop: 0.075, h: 0.2, color: 0xe2b93b, seg: 8 });
   }
+  w.sign({
+    x: DX, y: 2.9, z: Z1 - 0.07, w: 2.4, h: 0.42, rotY: Math.PI,
+    draw: (c, W, H) => {
+      c.fillStyle = '#15171a';
+      c.fillRect(0, 0, W, H);
+      c.fillStyle = '#ffd79a';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      fitText(c, '안내 데스크', W / 2, H / 2 + 1, W * 0.9, Math.round(H * 0.6), 700);
+    },
+  });
 
-  /* ---------- conditioning zone ---------- */
+  /* ---------- conditioning room: the corner by the entrance, where the desk used to be ---------- */
+  const CX0 = 5.3; // its west edge; the entrance walkway runs between it and the mat
   const steel = 0x17181a;
-  for (const [x, z] of [[-10.9, 2.5], [-9.7, 2.5], [-10.9, 3.9], [-9.7, 3.9]]) w.box({ x, z, w: 0.08, h: 2.4, d: 0.08, color: steel });
-  for (const z of [2.5, 3.9]) w.box({ x: -10.3, z, y: 2.36, w: 1.28, h: 0.08, d: 0.08, color: steel });
-  for (const x of [-10.9, -9.7]) w.box({ x, z: 3.2, y: 2.36, w: 0.08, h: 0.08, d: 1.48, color: steel });
-  w.box({ x: -9.6, z: 3.2, y: 1.34, w: 0.03, h: 0.03, d: 2.2, color: 0xb8bcc2 });
-  for (const [z, col] of [[2.22, 0x2456a6], [2.14, 0x17181a], [4.18, 0x2456a6], [4.26, 0x17181a]]) {
-    w.cyl({ x: -9.6, y: 1.355, z, r: 0.225, h: 0.05, rotX: Math.PI / 2, center: true, color: col });
+  // a low brick wall with a glass top marks it off from the walkway and the heavy bags
+  w.texBox({ x: CX0, z: 5.7, w: 0.22, h: 0.9, d: 3.2, tex: w.texBrick('white'), tile: 1, collide: true });
+  w.box({ x: CX0, z: 5.7, y: 0.9, w: 0.04, h: 1.2, d: 3.2, color: 0x9fc4d8, opacity: 0.16 });
+  for (const z of [4.1, 5.7, 7.3]) w.box({ x: CX0, z, y: 0.9, w: 0.08, h: 1.2, d: 0.07, color: frame });
+  w.sign({
+    x: CX0 - 0.13, y: 1.35, z: 5.7, w: 1.9, h: 0.36, rotY: -Math.PI / 2,
+    draw: (c, W, H) => {
+      c.fillStyle = '#15171a';
+      c.fillRect(0, 0, W, H);
+      c.fillStyle = '#f1efe9';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      fitText(c, '컨디셔닝 룸', W / 2, H / 2 + 1, W * 0.9, Math.round(H * 0.62), 700);
+    },
+  });
+  // power rack with a loaded bar, and a bench
+  const RX = 10.3;
+  const RZ = 6.3;
+  for (const [dx, dz] of [[-0.6, -0.7], [0.6, -0.7], [-0.6, 0.7], [0.6, 0.7]]) w.box({ x: RX + dx, z: RZ + dz, w: 0.08, h: 2.4, d: 0.08, color: steel });
+  for (const dz of [-0.7, 0.7]) w.box({ x: RX, z: RZ + dz, y: 2.36, w: 1.28, h: 0.08, d: 0.08, color: steel });
+  for (const dx of [-0.6, 0.6]) w.box({ x: RX + dx, z: RZ, y: 2.36, w: 0.08, h: 0.08, d: 1.48, color: steel });
+  w.box({ x: RX - 0.7, z: RZ, y: 1.34, w: 0.03, h: 0.03, d: 2.2, color: 0xb8bcc2 });
+  for (const [dz, col] of [[-0.98, 0x2456a6], [-1.06, 0x17181a], [0.98, 0x2456a6], [1.06, 0x17181a]]) {
+    w.cyl({ x: RX - 0.7, y: 1.355, z: RZ + dz, r: 0.225, h: 0.05, rotX: Math.PI / 2, center: true, color: col });
   }
-  w.collider(-11.1, -9.3, 2.05, 4.35, 0, 2.5);
-  w.box({ x: -8.4, z: 3.2, w: 0.34, h: 0.42, d: 1.25, color: 0x202226, collide: true });
-  // dumbbell rack
-  for (const y of [0.35, 0.78]) w.box({ x: -6.8, z: 7.5, y, w: 2.8, h: 0.06, d: 0.5, color: steel });
-  for (const x of [-8.15, -5.45]) w.box({ x, z: 7.5, w: 0.06, h: 1.0, d: 0.5, color: steel });
+  w.collider(RX - 1.0, RX + 0.8, RZ - 1.15, RZ + 1.15, 0, 2.5);
+  w.box({ x: RX - 1.9, z: RZ - 0.4, w: 0.34, h: 0.42, d: 1.25, color: 0x202226, collide: true });
+  // dumbbell rack along the south wall
+  const DR = 7.3;
+  for (const y of [0.35, 0.78]) w.box({ x: DR, z: 7.5, y, w: 2.8, h: 0.06, d: 0.5, color: steel });
+  for (const x of [DR - 1.35, DR + 1.35]) w.box({ x, z: 7.5, w: 0.06, h: 1.0, d: 0.5, color: steel });
   for (let i = 0; i < 6; i++) {
-    for (const y of [0.41, 0.84]) w.box({ x: -8.0 + i * 0.47, z: 7.5, y, w: 0.15, h: 0.15, d: 0.36, color: 0x101113 });
+    for (const y of [0.41, 0.84]) w.box({ x: DR - 1.2 + i * 0.47, z: 7.5, y, w: 0.15, h: 0.15, d: 0.36, color: 0x101113 });
   }
-  w.collider(-8.3, -5.3, 7.15, 7.85, 0, 1.1);
-  for (let i = 0; i < 4; i++) w.sphere({ x: -4.4 + i * 0.34, y: 0.12, z: 7.55, r: 0.12, color: 0x101113 });
+  w.collider(DR - 1.5, DR + 1.5, 7.15, 7.85, 0, 1.1);
+  for (let i = 0; i < 3; i++) w.sphere({ x: 5.75 + i * 0.3, y: 0.12, z: 4.0, r: 0.12, color: 0x101113 });
   // rowing machines stored upright against the partition
   for (const z of [-3.5, -2.6]) {
     w.box({ x: 2.72, z, w: 0.1, h: 2.05, d: 0.14, color: 0xe8e8ea, rotZ: -0.06 });
@@ -424,11 +464,11 @@ export function buildGym(api) {
   w.sphere({ x: 9.3, y: 1.98, z: 1.85, r: 0.24, sy: 0.95, color: 0xe8e8ea });
   w.collider(9.08, 9.52, 1.63, 2.07, 1.3, 2.2);
   // gi rack and speaker
-  w.box({ x: 11.3, z: 5.4, y: 1.75, w: 0.05, h: 0.05, d: 1.5, color: steel });
-  for (const z of [4.7, 6.1]) w.box({ x: 11.3, z, w: 0.05, h: 1.78, d: 0.05, color: steel });
-  [0xf3f2ee, 0x2148b5, 0xf3f2ee, 0x1d1e22].forEach((col, i) => w.box({ x: 11.3, z: 4.95 + i * 0.3, y: 0.82, w: 0.5, h: 0.9, d: 0.1, color: col }));
-  w.collider(11.0, 11.6, 4.6, 6.2, 0, 1.8);
-  w.box({ x: -0.6, z: 0.95, w: 0.4, h: 0.5, d: 0.32, color: 0x101113, collide: true });
+  w.box({ x: 11.3, z: 3.9, y: 1.75, w: 0.05, h: 0.05, d: 1.5, color: steel });
+  for (const z of [3.2, 4.6]) w.box({ x: 11.3, z, w: 0.05, h: 1.78, d: 0.05, color: steel });
+  [0xf3f2ee, 0x2148b5, 0xf3f2ee, 0x1d1e22].forEach((col, i) => w.box({ x: 11.3, z: 3.45 + i * 0.3, y: 0.82, w: 0.5, h: 0.9, d: 0.1, color: col }));
+  w.collider(11.0, 11.6, 3.1, 4.7, 0, 1.8);
+  w.box({ x: 2.75, z: 0.2, w: 0.4, h: 0.5, d: 0.32, color: 0x101113, collide: true });
 
   /* ---------- ceiling: ducts, cassettes, LED lines ---------- */
   w.cyl({ x: 0, y: 4.3, z: -2.2, r: 0.22, h: 23.6, rotZ: Math.PI / 2, center: true, color: 0x26272a });
@@ -438,11 +478,11 @@ export function buildGym(api) {
     w.box({ x, z, y: 4.42, w: 0.95, h: 0.22, d: 0.95, color: 0xe9e9ea });
     w.box({ x, z, y: 4.41, w: 0.6, h: 0.02, d: 0.6, color: 0x55585c });
   }
+  // long LED lines over the mat, running toward the folding doors, and two over the other side
   const led = (x0, x1, z) => w.box({ x: (x0 + x1) / 2, z, y: 4.15, w: x1 - x0, h: 0.04, d: 0.07, color: 0xffe9c4, basic: true });
-  led(-11.2, 1.6, -5.7);
-  led(-11.5, 11.5, -1.7);
-  led(-11.5, 11.5, 2.6);
-  led(-11.5, 11.5, 6.3);
+  for (const x of [-9.4, -5.0, -0.6]) w.box({ x, z: (MZ0 + MZ1) / 2 + 0.4, y: 4.15, w: 0.07, h: 0.04, d: md + 1.6, color: 0xffe9c4, basic: true });
+  led(2.8, 11.5, 2.6);
+  led(2.8, 11.5, 6.3);
 
   /* ---------- round timer above the windows ---------- */
   const timer = { run: false, left: 0, shown: -1, match: null };
@@ -454,8 +494,8 @@ export function buildGym(api) {
       const clock = (sec) => `${String((sec / 60) | 0).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
       const s = Math.max(0, Math.ceil(timer.left));
       const mt = timer.match;
-      // a points match on the mat takes the board: score, clock, score
-      const txt = mt ? `${mt.sa}  ${clock(mt.left)}  ${mt.sb}` : timer.run || timer.left > 0 ? clock(s) : 'ROUND';
+      // sparring on the mat takes the board: the rounds won on each side
+      const txt = mt ? `${mt.sa}  :  ${mt.sb}` : timer.run || timer.left > 0 ? clock(s) : 'ROUND';
       c.fillStyle = mt || timer.run ? '#ff5a3c' : '#ffb24a';
       c.textAlign = 'center';
       c.textBaseline = 'middle';
@@ -474,7 +514,7 @@ export function buildGym(api) {
     }
     timer.match = api.matchIn(MX0, MX1, MZ0, MZ1);
     const mt = timer.match;
-    const s = mt ? `m${mt.sa}|${mt.left}|${mt.sb}` : timer.run ? Math.ceil(timer.left) : -2 - (timer.left > 0 ? 1 : 0);
+    const s = mt ? `m${mt.sa}|${mt.sb}` : timer.run ? Math.ceil(timer.left) : -2 - (timer.left > 0 ? 1 : 0);
     if (s !== timer.shown) {
       timer.shown = s;
       timerSign.redraw();
@@ -529,29 +569,31 @@ export function buildGym(api) {
   w.interact.push({ x: master.x, z: master.z, r: 2.3, label: '관장님께 물어보기', short: '묻기', when: () => !master.busy && !master.back, action: (a) => a.open('master') });
   new NPC(w, { x: -4.8, z: -3.4, yaw: 0.9, spar: true, label: '스파링 파트너', look: gi({ belt: 'blue', gi: 'white', lite: false }) });
   new NPC(w, { x: -10.9, z: -2.6, yaw: Math.PI / 2, anim: 'sit', spar: true, name: '흰 띠 관원', look: gi({ belt: 'white' }) });
-  w.box({ x: 7.5, z: 6.1, w: 0.7, h: 0.3, d: 0.55, color: 0x3a2c1e });
-  new NPC(w, { x: 7.5, z: 6.1, y: 0.3, yaw: Math.PI, anim: 'arms', look: casualLook({ top: 0x2b2b30 }) });
+  w.box({ x: DX, z: 7.45, w: 0.7, h: 0.3, d: 0.55, color: 0x3a2c1e });
+  new NPC(w, { x: DX, z: 7.45, y: 0.3, yaw: Math.PI, anim: 'arms', label: '안내 데스크', lines: ['어서 오세요!', '매트에서 스파링 버튼을 눌러 보세요.', '내일 봬요!'], look: casualLook({ top: 0x2b2b30 }) });
   new NPC(w, { x: -12.4, z: -18.6, yaw: 1.2, anim: 'stretch', spar: true, name: '야외 매트의 관원', look: gi({ belt: 'purple', gi: 'white' }) });
 
   /* ---------- zones ---------- */
   let lastBow = -1e9;
-  w.zone({ id: 'room', label: '컨디셔닝 존', prio: 0, minX: X0, maxX: X1, minZ: Z0, maxZ: Z1 });
+  w.zone({ id: 'room', label: '도장', prio: 0, minX: X0, maxX: X1, minZ: Z0, maxZ: Z1 });
   let told = false;
   w.zone({
-    id: 'desk', label: '안내 데스크', prio: 1, minX: 2.4, maxX: X1, minZ: 3.4, maxZ: Z1,
+    id: 'entry', label: '입구', prio: 1, minX: 2.3, maxX: CX0, minZ: 3.4, maxZ: Z1,
     onEnter: (a) => {
       if (told) return;
       told = true;
       a.toast('매트 끝에 계신 관장님께 다가가 큰 버튼을 누르면 시간표와 2027 대회 신청을 볼 수 있습니다', 5200);
     },
   });
+  w.zone({ id: 'cond', label: '컨디셔닝 룸', prio: 1, minX: CX0, maxX: X1, minZ: 3.4, maxZ: Z1 });
+  w.zone({ id: 'desk', label: '안내 데스크', prio: 1, minX: X0, maxX: 2.3, minZ: MZ1, maxZ: Z1 });
   w.zone({
     id: 'mat', label: '매트', prio: 2, surface: 'mat', minX: MX0, maxX: MX1, minZ: MZ0, maxZ: MZ1, maxY: 1,
     onEnter: (a) => {
       if (nowMs() - lastBow > 25000) {
         lastBow = nowMs();
         a.bow();
-        a.toast('매트에 오르며 인사합니다. 상대에게 붙으면 기술 버튼을 쓸 수 있습니다', 4200);
+        a.toast('매트에 오르며 인사합니다. 상대에게 붙으면 스파링 버튼이 켜집니다', 4200);
       }
     },
   });
@@ -562,7 +604,7 @@ export function buildGym(api) {
     onEnter: (a) => {
       if (out) return;
       out = true;
-      a.toast('폴딩도어 밖은 6층 테라스 잔디마당입니다. 난간 너머로 아파트 단지가 보입니다', 4200);
+      a.toast('폴딩도어 밖은 6층 테라스 잔디마당입니다. 난간 너머로 전주 SK리더스뷰와 유탑유블레스의 야경이 보입니다', 4600);
     },
   });
   w.zone({
@@ -571,7 +613,7 @@ export function buildGym(api) {
       if (nowMs() - lastBow > 25000) {
         lastBow = nowMs();
         a.bow();
-        a.toast('야외 매트에 오르며 인사합니다. 여기서도 드릴과 기술을 할 수 있습니다', 4200);
+        a.toast('야외 매트에 오르며 인사합니다. 여기서도 드릴과 스파링을 할 수 있습니다', 4200);
       }
     },
   });
