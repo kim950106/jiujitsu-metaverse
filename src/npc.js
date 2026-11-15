@@ -40,6 +40,9 @@ export class NPC {
     this.busy = false; // held in a duel or a bout; something else moves it
     this.back = false; // walking back to its spot afterwards
     this.name = o.name || o.label || '파트너';
+    // what this one answers to the three quick phrases (greeting, asking for a round, goodbye)
+    this.lines = o.lines === null ? null : o.lines || (o.spar ? ['안녕하세요!', '좋아요. 붙어서 기술 버튼!', '내일 봬요!'] : ['안녕하세요!', '저는 구경할게요.', '내일 봬요!']);
+    this.reply = null;
     this.home = { x: this.x, z: this.z, yaw: this.yaw, anim: o.anim || 'loco', mode: this.mode };
     world.scene.add(this.char.root);
     world.npcs.push(this);
@@ -100,12 +103,19 @@ export class NPC {
     if (!this.busy) return;
     this.busy = false;
     this.back = true;
-    if (this.char.anim === 'tech') this.char.play('loco');
+    this.char.play('loco'); // whatever it was held in (a stance, a technique, a match position)
     this.char.tech = null;
     this.anim = 'loco';
   }
 
   update(dt) {
+    if (this.reply) {
+      this.reply.t -= dt;
+      if (this.reply.t <= 0) {
+        this.char.say(this.reply.text, 3.4);
+        this.reply = null;
+      }
+    }
     if (this.busy) {
       this.speed = 0;
     } else if (this.back) {

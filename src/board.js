@@ -1,10 +1,12 @@
 /* global window, document, localStorage, sessionStorage, location */
 // What the master answers: the dojo timetable, and the sign-up sheet for next year's tournament.
-// Both live in the page's shared store, so everyone who opens the page reads the same data.
-// Names are public on the list; contact details are kept on a path only the page's admins can read.
+// The timetable is fixed (schedule.js). The sign-up sheet lives in the page's shared store, so
+// everyone who opens the page reads the same list. Names are public on the list; contact details
+// are kept on a path only the page's admins can read.
 import { mockWanted } from './net.js';
 import { hostKind } from './relay.js';
 import { BELTS } from './util.js';
+import { ROWS, timesText, flowText, todayLine } from './schedule.js';
 
 const $ = (s) => document.querySelector(s);
 const text = (v, max) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max) : '');
@@ -100,127 +102,22 @@ export function initBoard({ openModal, toast, sel }) {
       : '지금은 이 기능을 쓸 수 없습니다. 아직 준비 중이거나, 로그인하지 않은 상태입니다.';
   };
 
-  /* ---------- timetable ---------- */
-  let rows = [];
-  let memo = '';
-  const tState = $('#time-state');
-  const tView = $('#time-view');
-  const tRows = $('#time-rows');
-  const tNote = $('#time-note');
-  const tEdit = $('#time-edit');
-  const tInputs = $('#time-inputs');
-  const tBtn = $('#time-editbtn');
-
-  const paintTime = (admin) => {
-    tRows.textContent = '';
-    for (const r of rows) {
+  /* ---------- timetable: fixed, the same for everyone (schedule.js) ---------- */
+  const openTime = () => {
+    const rows = $('#time-rows');
+    rows.textContent = '';
+    for (const r of ROWS) {
       const tr = document.createElement('tr');
-      for (const v of [r.d, r.t, r.c]) {
+      for (const v of [r.label, timesText(), flowText(r.flow)]) {
         const td = document.createElement('td');
         td.textContent = v;
         tr.appendChild(td);
       }
-      tRows.appendChild(tr);
+      rows.appendChild(tr);
     }
-    tView.hidden = !rows.length;
-    tNote.hidden = !memo;
-    tNote.textContent = memo;
-    tState.hidden = !!rows.length;
-    tState.textContent = admin
-      ? '아직 시간표가 없습니다. 아래 ‘시간표 입력’으로 적어 두면 이 페이지를 여는 모든 사람에게 보입니다.'
-      : '아직 시간표가 등록되지 않았습니다.';
-    tBtn.hidden = !admin;
-    tBtn.textContent = rows.length ? '시간표 수정' : '시간표 입력';
-  };
-
-  const openTime = async () => {
+    $('#time-today').textContent = todayLine();
     openModal('modal-time');
-    tEdit.hidden = true;
-    tView.hidden = true;
-    tNote.hidden = true;
-    tBtn.hidden = true;
-    tState.hidden = false;
-    tState.textContent = '불러오는 중…';
-    const { db, me } = await loadCaps();
-    if (!db) {
-      tState.textContent = noStore(me);
-      return;
-    }
-    try {
-      const snap = await within(db.doc('info/timetable').get(), 10000);
-      const d = snap.exists ? snap.data() : null;
-      rows = d && Array.isArray(d.rows) ? d.rows.slice(0, 40).map((r) => ({ d: text(r && r.d, 16), t: text(r && r.t, 24), c: text(r && r.c, 40) })).filter((r) => r.d || r.t || r.c) : [];
-      memo = d ? text(d.memo, 120) : '';
-      paintTime(me.admin);
-    } catch (e) {
-      tState.textContent = why(e);
-    }
   };
-
-  const addInputRow = (r) => {
-    const row = document.createElement('div');
-    row.className = 'trow';
-    const mk = (ph, val, max, label) => {
-      const i = document.createElement('input');
-      i.type = 'text';
-      i.placeholder = ph;
-      i.maxLength = max;
-      i.value = val || '';
-      i.setAttribute('aria-label', label);
-      row.appendChild(i);
-      return i;
-    };
-    mk('월·수·금', r && r.d, 16, '요일');
-    mk('19:30~20:30', r && r.t, 24, '시간');
-    mk('주짓수 기초', r && r.c, 40, '수업');
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'mini';
-    del.textContent = '삭제';
-    del.setAttribute('aria-label', '이 줄 삭제');
-    del.addEventListener('click', () => row.remove());
-    row.appendChild(del);
-    tInputs.appendChild(row);
-  };
-
-  tBtn.addEventListener('click', () => {
-    tInputs.textContent = '';
-    (rows.length ? rows : [null, null, null]).forEach(addInputRow);
-    $('#time-memo').value = memo;
-    tEdit.hidden = false;
-    tView.hidden = true;
-    tNote.hidden = true;
-    tState.hidden = true;
-    tBtn.hidden = true;
-  });
-  $('#time-add').addEventListener('click', () => { if (tInputs.children.length < 40) addInputRow(null); });
-  $('#time-cancel').addEventListener('click', () => {
-    tEdit.hidden = true;
-    paintTime(true);
-  });
-  tEdit.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const next = Array.from(tInputs.children).map((row) => {
-      const [d, t, c] = Array.from(row.querySelectorAll('input')).map((i) => i.value.trim());
-      return { d: text(d, 16), t: text(t, 24), c: text(c, 40) };
-    }).filter((r) => r.d || r.t || r.c);
-    const note = text($('#time-memo').value.trim(), 120);
-    const { db } = await loadCaps();
-    if (!db) return;
-    const btn = $('#time-save');
-    btn.disabled = true;
-    try {
-      await within(db.doc('info/timetable').set({ rows: next, memo: note, at: Date.now() }), 10000);
-      rows = next;
-      memo = note;
-      tEdit.hidden = true;
-      paintTime(true);
-      toast('시간표를 저장했습니다');
-    } catch (err) {
-      toast(why(err), 4200);
-    }
-    btn.disabled = false;
-  });
 
   /* ---------- sign-up ---------- */
   const aForm = $('#apply-form');

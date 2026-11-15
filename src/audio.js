@@ -93,6 +93,30 @@ export class Sound {
     return { o, g };
   }
 
+  // Filtered noise: a clap when short, a crowd when long. rise is the share of the time spent swelling.
+  _burst(t0, dur, freq, q, vol, rise = 0.04) {
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    const n = Math.max(1, Math.floor(ctx.sampleRate * dur));
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    src.buffer = buf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + dur * rise);
+    g.gain.linearRampToValueAtTime(0, t0 + dur);
+    src.connect(f);
+    f.connect(g);
+    g.connect(this.master);
+    src.start(t0);
+    src.stop(t0 + dur + 0.02);
+  }
+
   sfx(name) {
     if (!this.ctx || !this.on) return;
     try {
@@ -114,6 +138,20 @@ export class Sound {
         this._tone(150, t, 0.2, 'sine', 0.3, 48);
       } else if (name === 'tap') {
         for (let i = 0; i < 3; i++) this._tone(210, t + i * 0.14, 0.06, 'square', 0.07, 120);
+      } else if (name === 'tick') {
+        this._tone(660, t, 0.09, 'sine', 0.12);
+      } else if (name === 'shutter') {
+        this._burst(t, 0.05, 3200, 1.4, 0.2);
+        this._burst(t + 0.09, 0.07, 1800, 1.0, 0.16);
+      } else if (name === 'slap') {
+        this._burst(t, 0.07, 2400, 0.9, 0.22);
+      } else if (name === 'bump') {
+        this._tone(120, t, 0.09, 'sine', 0.22, 70);
+        this._burst(t, 0.04, 900, 1.2, 0.08);
+      } else if (name === 'cheer') {
+        // a crowd rising and dying away
+        this._burst(t, 2.6, 950, 0.5, 0.34, 0.5);
+        this._burst(t + 0.15, 2.2, 1900, 0.8, 0.12, 0.6);
       } else if (name === 'ding') {
         this._tone(1318, t, 0.16, 'triangle', 0.1);
         this._tone(1760, t + 0.14, 0.2, 'triangle', 0.1);

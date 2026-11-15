@@ -1,22 +1,31 @@
 /* global THREE */
-// Map 1: the dojo, laid out from the two interior photos (white mat by the windows, dark rubber-tile
-// conditioning floor, brick front desk, stairs to a loft, black open ceiling with warm LED lines).
+// Map 1: the dojo, laid out from the two interior photos (white mat by the folding doors, dark
+// rubber-tile conditioning floor, brick front desk, stairs to a loft, black open ceiling with warm
+// LED lines). It is on the sixth floor: the mat side opens onto a roof terrace with a turf lawn
+// and the apartment blocks around it (yard.js).
 import { World, BELTS, FONT, fitText, drawContain, rand, pick } from './util.js';
 import { NPC, randomLook, casualLook } from './npc.js';
+import { buildYard } from './yard.js';
+import { skyAt, hourNow } from './sky.js';
+import { ROWS, timesText, flowText } from './schedule.js';
+import { drawStrokes, metaLine } from './guest.js';
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 export function buildGym(api) {
   const w = new World('gym', '전주 퍼스트짐 도청점');
   const S = w.scene;
-  S.background = new THREE.Color(0x0e0f11);
-  S.fog = new THREE.Fog(0x0e0f11, 28, 70);
+  // The sky outside follows the hour. Its haze starts beyond anything in the room, so the room
+  // itself keeps its dark, lamp-lit look.
+  const sky = skyAt(hourNow());
+  S.background = new THREE.Color(sky.fog);
+  S.fog = new THREE.Fog(sky.fog, 45, 250);
   const X0 = -12;
   const X1 = 12;
   const Z0 = -8;
   const Z1 = 8;
   const CEIL = 4.8;
-  w.cam = { minX: X0 + 0.35, maxX: X1 - 0.35, minZ: Z0 + 0.35, maxZ: Z1 - 0.35, maxY: 3.7, ceil: CEIL - 0.3 };
+  const roomCam = { minX: X0 + 0.35, maxX: X1 - 0.35, minZ: Z0 + 0.35, maxZ: Z1 - 0.35, maxY: 3.7, ceil: CEIL - 0.3 };
   w.spawn = { x: 3.5, z: 4.4, yaw: Math.PI };
 
   /* ---------- light ---------- */
@@ -57,45 +66,45 @@ export function buildGym(api) {
   w.floor({ x: mcx, z: mcz, y: 0.042, w: mw, d: md, tex: w.texMatColor('white', '#eeece6', '#d6d3cb'), tile: 2 });
   w.collider(MX0, MX1, MZ0, MZ1, 0, 0.04);
 
+  // The shrimp-race lane along the south edge of the mat: six metres from the start line to the finish.
+  const RX0 = -3.0;
+  const RX1 = -9.0;
+  const RZ0 = -1.3;
+  const RZ1 = 0.3;
+  w.race = { x0: RX0, x1: RX1, z0: RZ0, z1: RZ1, yaw: Math.PI / 2 }; // lying with the head toward the finish
+  for (const [x, col] of [[RX0, 0xd99a00], [RX1, 0x15171a]]) w.box({ x, z: (RZ0 + RZ1) / 2, y: 0.043, w: 0.09, h: 0.004, d: RZ1 - RZ0, color: col });
+  for (const z of [RZ0, RZ1]) w.box({ x: (RX0 + RX1) / 2, z, y: 0.043, w: RX0 - RX1, h: 0.004, d: 0.035, color: 0xb9b5aa });
+  const laneText = (x, text, wd) => w.sign({
+    x, y: 0.05, z: (RZ0 + RZ1) / 2, w: 0.42, h: wd, flat: true, transparent: true, res: 160,
+    draw: (c, W, H) => {
+      c.clearRect(0, 0, W, H);
+      c.save();
+      c.translate(W / 2, H / 2);
+      c.rotate(-Math.PI / 2);
+      c.fillStyle = '#8a8478';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      fitText(c, text, 0, 2, H * 0.92, Math.round(W * 0.62));
+      c.restore();
+    },
+  });
+  laneText(RX0 + 0.42, '새우빼기 경주 · 출발', 1.5);
+  laneText(RX1 - 0.42, '도착', 0.8);
+  w.interact.push({ x: RX0 + 0.9, z: (RZ0 + RZ1) / 2, r: 1.25, label: '새우빼기 경주 시작 · 6 m', short: '경주', when: (a) => !a.racing(), action: (a) => a.race() });
+
   const wallC = 0x1b1c1f;
-  w.box({ x: 0, z: Z0 - 0.15, w: 24.6, h: CEIL, d: 0.3, color: wallC, collide: true });
+  // (the north wall, with its folding doors, is built with the yard below)
   w.box({ x: 0, z: Z1 + 0.15, w: 24.6, h: CEIL, d: 0.3, color: wallC, collide: true });
   w.box({ x: X0 - 0.15, z: 0, w: 0.3, h: CEIL, d: 16, color: wallC, collide: true });
   w.box({ x: X1 + 0.15, z: 0, w: 0.3, h: CEIL, d: 16, color: wallC, collide: true });
   w.box({ x: 0, z: 0, y: CEIL, w: 24.6, h: 0.2, d: 16.6, color: 0x0c0c0e });
 
-  /* ---------- north windows along the mat ---------- */
+  /* ---------- north side: folding doors along the mat (the yard is built further down) ---------- */
   const wx0 = -11.6;
   const wx1 = 1.8;
-  const wl = wx1 - wx0;
   const wcx = (wx0 + wx1) / 2;
   const frame = 0x111214;
-  w.texBox({ x: wcx, z: Z0 + 0.14, w: wl, h: 0.9, d: 0.28, tex: w.texBrick('white'), tile: 1, collide: true });
-  w.sign({
-    x: wcx, y: 1.9, z: Z0 + 0.03, w: wl, h: 2.0, res: 48,
-    draw: (c, W, H) => {
-      const g = c.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, '#cfe2f1');
-      g.addColorStop(1, '#eef3f5');
-      c.fillStyle = g;
-      c.fillRect(0, 0, W, H);
-      const cols = ['#b9c1c9', '#a9b2bb', '#c6ccd2', '#9da7b1'];
-      let x = 0;
-      while (x < W) {
-        const bw = 50 + Math.random() * 90;
-        const bh = H * (0.35 + Math.random() * 0.45);
-        c.fillStyle = pick(cols);
-        c.fillRect(x, H - bh, bw, bh);
-        c.fillStyle = 'rgba(255,255,255,.35)';
-        for (let yy = H - bh + 8; yy < H - 8; yy += 14) c.fillRect(x + 6, yy, bw - 12, 5);
-        x += bw + 6;
-      }
-    },
-  });
-  for (let i = 0; i <= 10; i++) w.box({ x: wx0 + (wl * i) / 10, z: Z0 + 0.1, y: 0.9, w: 0.07, h: 2.0, d: 0.1, color: frame });
-  w.box({ x: wcx, z: Z0 + 0.1, y: 2.86, w: wl, h: 0.08, d: 0.1, color: frame });
-  w.box({ x: wcx, z: Z0 + 0.1, y: 1.9, w: wl, h: 0.05, d: 0.1, color: frame });
-  w.box({ x: wcx, z: Z0 + 0.08, y: 3.0, w: wl, h: 0.05, d: 0.06, color: 0xa56bff, basic: true });
+  const GAP = [-8.6, -1.0]; // the part of the doors that stands open
 
   /* ---------- west wall: pad, banner, belt board, wood ---------- */
   w.box({ x: X0 + 0.06, z: mcz, w: 0.12, h: 2.0, d: md, color: 0xf0eee8 });
@@ -119,6 +128,18 @@ export function buildGym(api) {
   };
   w.logoSlot('gym', w.sign({ x: X0 + 0.02, y: 3.05, z: -3.9, w: 3.6, h: 1.6, rotY: Math.PI / 2, draw: gymBanner }));
   w.logoSlot('gym', w.sign({ x: -2.2, y: 2.5, z: Z1 - 0.02, w: 2.6, h: 1.16, rotY: Math.PI, draw: gymBanner }));
+
+  /* ---------- the yard: folding doors, deck, lawn, apartment blocks ---------- */
+  const yard = buildYard(w, { X0, X1, Z0, CEIL, door: [wx0, wx1], gap: GAP, banner: gymBanner, sky });
+  w.sky = sky;
+  // The camera may be in the room, on the lawn, or in the doorway between them.
+  w.cam = Object.assign({}, roomCam, {
+    boxes: [
+      roomCam,
+      { minX: GAP[0] + 0.3, maxX: GAP[1] - 0.3, minZ: yard.WALL - 0.95, maxZ: Z0 + 0.95, maxY: 2.7 },
+      { minX: yard.LX0 + 0.75, maxX: yard.LX1 - 0.75, minZ: yard.LZ0 + 0.75, maxZ: yard.WALL - 0.45, maxY: 6.5, ceil: 9 },
+    ],
+  });
 
   w.sign({
     x: X0 + 0.13, y: 1.42, z: -0.95, w: 1.7, h: 1.1, rotY: Math.PI / 2,
@@ -156,6 +177,37 @@ export function buildGym(api) {
   });
   w.interact.push({ x: X0 + 1.1, z: -0.95, r: 2.3, label: '띠 체계 보기', short: '보기', action: (a) => a.openBelt() });
 
+  // the timetable, on the same wall nearer the folding doors
+  w.sign({
+    x: X0 + 0.13, y: 1.4, z: -6.3, w: 2.0, h: 1.16, rotY: Math.PI / 2, res: 220,
+    draw: (c, W, H) => {
+      c.fillStyle = '#191c21';
+      c.fillRect(0, 0, W, H);
+      c.fillStyle = '#ffd79a';
+      c.fillRect(0, 0, W, 5);
+      c.textBaseline = 'middle';
+      c.textAlign = 'left';
+      c.fillStyle = '#f1efe9';
+      c.font = FONT(Math.round(H * 0.12));
+      c.fillText('시간표', W * 0.06, H * 0.14);
+      c.textAlign = 'right';
+      c.fillStyle = '#9aa0a8';
+      fitText(c, `${timesText()} · 한 타임 1시간`, W * 0.95, H * 0.145, W * 0.6, Math.round(H * 0.07), 500);
+      ROWS.forEach((r, i) => {
+        const y = H * (0.38 + i * 0.215);
+        c.fillStyle = '#23272e';
+        c.fillRect(W * 0.05, y - H * 0.088, W * 0.9, H * 0.176);
+        c.textAlign = 'left';
+        c.fillStyle = '#ffd79a';
+        c.font = FONT(Math.round(H * 0.092));
+        c.fillText(r.label, W * 0.08, y + 1);
+        c.fillStyle = '#f1efe9';
+        fitText(c, flowText(r.flow), W * 0.35, y + 1, W * 0.58, Math.round(H * 0.086), 700);
+      });
+    },
+  });
+  w.interact.push({ x: X0 + 1.1, z: -6.3, r: 1.9, label: '시간표 보기', short: '시간표', action: (a) => a.open('time') });
+
   w.texBox({ x: X0 + 0.05, z: 4.25, w: 0.1, h: 3.4, d: 7.5, tex: w.texPlank('brown'), tile: 2 });
 
   /* ---------- south wall: door, planks ---------- */
@@ -165,6 +217,54 @@ export function buildGym(api) {
   w.box({ x: 4.44, z: Z1 - 0.06, w: 0.08, h: 2.4, d: 0.12, color: frame });
   w.box({ x: 3.5, z: Z1 - 0.06, y: 2.3, w: 1.96, h: 0.1, d: 0.12, color: frame });
   w.box({ x: 3.5, z: Z1 - 0.06, w: 0.06, h: 2.3, d: 0.1, color: frame });
+
+  /* ---------- guestbook board beside the entrance: the newest drawings, pinned up ---------- */
+  const guestSign = w.sign({
+    x: 0.95, y: 1.62, z: Z1 - 0.02, w: 2.6, h: 1.7, rotY: Math.PI, res: 280,
+    draw: (c, W, H) => {
+      c.fillStyle = '#5a3d26';
+      c.fillRect(0, 0, W, H);
+      c.fillStyle = '#c9a877';
+      c.fillRect(W * 0.018, H * 0.028, W * 0.964, H * 0.944);
+      c.textBaseline = 'middle';
+      c.textAlign = 'left';
+      c.fillStyle = '#15171a';
+      c.font = FONT(Math.round(H * 0.085));
+      c.fillText('게시판', W * 0.045, H * 0.105);
+      c.textAlign = 'right';
+      c.fillStyle = '#4a3626';
+      c.font = FONT(Math.round(H * 0.046), 700);
+      c.fillText('그림으로 남기는 한마디', W * 0.955, H * 0.11);
+      const list = api.board();
+      const tw = W * 0.28;
+      const th = (tw * 160) / 256;
+      for (let i = 0; i < 6; i++) {
+        const x = W * (0.04 + (i % 3) * 0.32);
+        const y = H * (0.185 + Math.floor(i / 3) * 0.385);
+        c.fillStyle = 'rgba(0,0,0,.2)';
+        c.fillRect(x + 4, y + 5, tw, th);
+        c.fillStyle = '#f6f3ea';
+        c.fillRect(x, y, tw, th);
+        const e = list[i];
+        if (e) {
+          drawStrokes(c, e.strokes, tw, th, x, y);
+          c.fillStyle = '#2a2018';
+          c.textAlign = 'left';
+          fitText(c, metaLine(e), x + 2, y + th + H * 0.04, tw - 4, Math.round(H * 0.038), 700);
+        } else if (i === list.length) {
+          c.fillStyle = '#9a8f7c';
+          c.textAlign = 'center';
+          fitText(c, list.length ? '다음 그림 자리' : '첫 그림을 남겨 보세요', x + tw / 2, y + th / 2, tw * 0.84, Math.round(H * 0.042), 700);
+        }
+        c.fillStyle = '#c62828';
+        c.beginPath();
+        c.arc(x + tw / 2, y + 3, H * 0.012, 0, Math.PI * 2);
+        c.fill();
+      }
+    },
+  });
+  w.onBoard = () => guestSign.redraw();
+  w.interact.push({ x: 0.95, z: Z1 - 1.3, r: 2.0, label: '게시판 · 그림 남기기', short: '게시판', action: (a) => a.open('guest') });
 
   /* ---------- east wall pads ---------- */
   w.box({ x: X1 - 0.07, z: 0.75, w: 0.14, h: 2.0, d: 6.5, color: 0x2f5fb3 });
@@ -345,15 +445,18 @@ export function buildGym(api) {
   led(-11.5, 11.5, 6.3);
 
   /* ---------- round timer above the windows ---------- */
-  const timer = { run: false, left: 0, shown: -1 };
+  const timer = { run: false, left: 0, shown: -1, match: null };
   const timerSign = w.sign({
     x: wcx, y: 3.5, z: Z0 + 0.02, w: 2.3, h: 0.66,
     draw: (c, W, H) => {
       c.fillStyle = '#060607';
       c.fillRect(0, 0, W, H);
+      const clock = (sec) => `${String((sec / 60) | 0).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
       const s = Math.max(0, Math.ceil(timer.left));
-      const txt = timer.run || timer.left > 0 ? `${String((s / 60) | 0).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : 'ROUND';
-      c.fillStyle = timer.run ? '#ff5a3c' : '#ffb24a';
+      const mt = timer.match;
+      // a points match on the mat takes the board: score, clock, score
+      const txt = mt ? `${mt.sa}  ${clock(mt.left)}  ${mt.sb}` : timer.run || timer.left > 0 ? clock(s) : 'ROUND';
+      c.fillStyle = mt || timer.run ? '#ff5a3c' : '#ffb24a';
       c.textAlign = 'center';
       c.textBaseline = 'middle';
       fitText(c, txt, W / 2, H / 2 + 2, W * 0.9, Math.round(H * 0.78));
@@ -369,7 +472,9 @@ export function buildGym(api) {
         api.toast('라운드 종료');
       }
     }
-    const s = timer.run ? Math.ceil(timer.left) : -2 - (timer.left > 0 ? 1 : 0);
+    timer.match = api.matchIn(MX0, MX1, MZ0, MZ1);
+    const mt = timer.match;
+    const s = mt ? `m${mt.sa}|${mt.left}|${mt.sb}` : timer.run ? Math.ceil(timer.left) : -2 - (timer.left > 0 ? 1 : 0);
     if (s !== timer.shown) {
       timer.shown = s;
       timerSign.redraw();
@@ -418,6 +523,7 @@ export function buildGym(api) {
   // A small room: the master, one sparring partner, one member resting by the wall, the front desk.
   const master = new NPC(w, {
     x: 0.9, z: -5.4, yaw: -Math.PI / 2, anim: 'arms', spar: true, label: '관장님',
+    lines: ['어서 오세요.', '좋지요. 매트로 오세요.', '내일 봅시다.'],
     look: gi({ belt: 'black', stripes: 2, gi: 'black', female: false, lite: false, hairStyle: 'flat' }),
   });
   w.interact.push({ x: master.x, z: master.z, r: 2.3, label: '관장님께 물어보기', short: '묻기', when: () => !master.busy && !master.back, action: (a) => a.open('master') });
@@ -425,6 +531,7 @@ export function buildGym(api) {
   new NPC(w, { x: -10.9, z: -2.6, yaw: Math.PI / 2, anim: 'sit', spar: true, name: '흰 띠 관원', look: gi({ belt: 'white' }) });
   w.box({ x: 7.5, z: 6.1, w: 0.7, h: 0.3, d: 0.55, color: 0x3a2c1e });
   new NPC(w, { x: 7.5, z: 6.1, y: 0.3, yaw: Math.PI, anim: 'arms', look: casualLook({ top: 0x2b2b30 }) });
+  new NPC(w, { x: -12.4, z: -18.6, yaw: 1.2, anim: 'stretch', spar: true, name: '야외 매트의 관원', look: gi({ belt: 'purple', gi: 'white' }) });
 
   /* ---------- zones ---------- */
   let lastBow = -1e9;
@@ -449,6 +556,25 @@ export function buildGym(api) {
     },
   });
   w.zone({ id: 'loft', label: '2층 관람 라운지', prio: 3, minX: QX0, maxX: QX1, minZ: QZ0, maxZ: QZ1, minY: QY - 0.3 });
+  let out = false;
+  w.zone({
+    id: 'yard', label: '6층 테라스 잔디마당', prio: 1, minX: yard.LX0, maxX: yard.LX1, minZ: yard.LZ0, maxZ: Z0 - 0.15,
+    onEnter: (a) => {
+      if (out) return;
+      out = true;
+      a.toast('폴딩도어 밖은 6층 테라스 잔디마당입니다. 난간 너머로 아파트 단지가 보입니다', 4200);
+    },
+  });
+  w.zone({
+    id: 'openmat', label: '야외 매트', prio: 2, surface: 'mat', minX: yard.MAT.x0, maxX: yard.MAT.x1, minZ: yard.MAT.z0, maxZ: yard.MAT.z1, maxY: 1,
+    onEnter: (a) => {
+      if (nowMs() - lastBow > 25000) {
+        lastBow = nowMs();
+        a.bow();
+        a.toast('야외 매트에 오르며 인사합니다. 여기서도 드릴과 기술을 할 수 있습니다', 4200);
+      }
+    },
+  });
 
   return w;
 }

@@ -22,7 +22,10 @@
      Black open ceiling, dark rubber tiles, a white mat, and warm LED lines as the only accent.
      Layout: full-bleed 3D stage. Start screen: one panel docked right (bottom on phones).
      In play: a thumb stick bottom-left and a fan of round buttons bottom-right, sized from the
-     short side of the screen so the same layout holds on any phone, upright or sideways. */
+     short side of the screen so the same layout holds on any phone, upright or sideways.
+     Everything sits on one #stage. On an upright phone the stage is turned on its side while
+     playing (html.rot, set in ui.js), so the game is landscape whatever the phone's rotation lock
+     says; --sat/--sar/--sab/--sal are the safe-area insets as the stage sees them. */
   --ink: #0f1114;
   --panel: #181b20;
   --line: #2b3038;
@@ -32,7 +35,19 @@
   --on-led: #1b1408;
   --display: "Black Han Sans", "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   --body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px);
   color-scheme: dark;
+}
+/* turned a quarter clockwise: the stage's left edge is the top of the upright phone */
+html.rot {
+  --sat: env(safe-area-inset-right, 0px); --sar: env(safe-area-inset-bottom, 0px);
+  --sab: env(safe-area-inset-left, 0px); --sal: env(safe-area-inset-top, 0px);
+}
+/* turned the other way */
+html.rot.flip {
+  --sat: env(safe-area-inset-left, 0px); --sar: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-right, 0px); --sal: env(safe-area-inset-bottom, 0px);
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { height: 100%; overscroll-behavior: none; }
@@ -47,7 +62,10 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 :focus-visible { outline: 2px solid var(--led); outline-offset: 3px; }
 [hidden] { display: none !important; }
-#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; background: var(--ink); }
+#stage { position: fixed; inset: 0; overflow: hidden; }
+html.rot #stage { inset: auto; left: 0; top: 0; width: var(--sw); height: var(--sh); transform-origin: 0 0; transform: translateX(var(--sh)) rotate(90deg); }
+html.rot.flip #stage { transform: translateY(var(--sw)) rotate(-90deg); }
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; background: var(--ink); }
 
 /* ---------- start screen ---------- */
 .start { position: absolute; inset: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); display: grid; grid-template-columns: minmax(0, 1fr) min(440px, 44vw); pointer-events: none; }
@@ -125,7 +143,7 @@ legend .n { font-family: var(--body); font-size: 12px; font-weight: 700; color: 
 /* ---------- in-world HUD ---------- */
 #hud {
   position: absolute; pointer-events: none;
-  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  inset: var(--sat) var(--sar) var(--sab) var(--sal);
   --u: clamp(0.78px, calc(min(100vw, 100vh) / 400), 1.15px);
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
@@ -169,35 +187,102 @@ legend .n { font-family: var(--body); font-size: 12px; font-weight: 700; color: 
 .stick.run { border-color: #fff; }
 .stick.run i { background: #fff; }
 
-/* action buttons: one big button in the corner, the rest fanned around it */
-.pad { position: absolute; right: calc(12 * var(--u)); bottom: calc(12 * var(--u)); width: calc(216 * var(--u)); height: calc(216 * var(--u)); }
+/* action buttons: one big button in the corner, the three drills on a near arc round it, and on a
+   far arc the two buttons that open a list (talk, techniques) and two more drills. Positions are
+   centres, measured from the corner in units. */
+.pad { position: absolute; right: calc(12 * var(--u)); bottom: calc(12 * var(--u)); width: calc(222 * var(--u)); height: calc(222 * var(--u)); }
 .pb {
-  position: absolute; width: calc(58 * var(--u)); height: calc(58 * var(--u)); padding: 0; border-radius: 50%;
+  position: absolute; right: calc((var(--x) - 26) * var(--u)); bottom: calc((var(--y) - 26) * var(--u));
+  width: calc(52 * var(--u)); height: calc(52 * var(--u)); padding: 0; border-radius: 50%;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   background: rgba(15, 17, 20, .76); border: 2px solid rgba(255, 255, 255, .26); color: var(--mat);
-  font-weight: 700; font-size: max(11px, calc(13.5 * var(--u))); line-height: 1.12; text-align: center; touch-action: none;
+  font-weight: 700; font-size: max(10.5px, calc(12.5 * var(--u))); line-height: 1.12; text-align: center; touch-action: none;
 }
 .pb:active { transform: scale(.93); background: rgba(40, 44, 52, .9); }
 .pb kbd { display: none; font: 700 10px var(--body); color: var(--led); margin-top: 1px; }
-.pb.sm { width: calc(52 * var(--u)); height: calc(52 * var(--u)); font-size: max(10.5px, calc(12.5 * var(--u))); }
 .pb.main {
   right: 0; bottom: 0; width: calc(84 * var(--u)); height: calc(84 * var(--u)); font-size: max(13px, calc(17 * var(--u)));
   border-color: var(--led); color: var(--led);
 }
 .pb.main.hot { background: var(--led); color: var(--on-led); }
 .pb.off { opacity: .5; }
-.pb.sk { border-color: rgba(255, 215, 154, .55); }
-.pb.sk.ready { background: #3a2c12; border-color: var(--led); color: var(--led); box-shadow: 0 0 0 calc(4 * var(--u)) rgba(255, 215, 154, .22); }
-.pb[data-act="ankle"] { right: calc(110.8 * var(--u)); bottom: calc(19.8 * var(--u)); }
-.pb[data-act="arm"] { right: calc(79.8 * var(--u)); bottom: calc(84.7 * var(--u)); }
-.pb[data-act="roll"] { right: calc(13 * var(--u)); bottom: calc(111 * var(--u)); }
-.pb[data-act="shrimp"] { right: calc(159.8 * var(--u)); bottom: calc(99 * var(--u)); }
-.pb[data-act="sit"] { right: calc(93.9 * var(--u)); bottom: calc(162.6 * var(--u)); }
+.pb.sk { border-color: rgba(255, 215, 154, .5); color: rgba(241, 239, 233, .78); font-size: max(10px, calc(11.5 * var(--u))); letter-spacing: -.02em; }
+.pb.sk.ready { background: #3a2c12; border-color: var(--led); color: var(--led); box-shadow: 0 0 0 calc(3 * var(--u)) rgba(255, 215, 154, .22); }
+.pb[data-act="roll"] { --x: 53; --y: 133; }
+.pb[data-act="shrimp"] { --x: 107; --y: 107; }
+.pb[data-act="sit"] { --x: 133; --y: 53; }
+.pb[data-pop="say"] { --x: 194; --y: 42; }
+.pb[data-pop="tech"] { --x: 168; --y: 114; width: calc(58 * var(--u)); height: calc(58 * var(--u)); right: calc((var(--x) - 29) * var(--u)); bottom: calc((var(--y) - 29) * var(--u)); font-size: max(11.5px, calc(14 * var(--u))); }
+.pb[data-act="bridge"] { --x: 111; --y: 164; }
+.pb[data-act="standup"] { --x: 42; --y: 194; }
+.pb[aria-expanded="true"] { background: #3a2c12; border-color: var(--led); color: var(--led); }
+/* the lists those two buttons open */
+.pop {
+  position: absolute; right: calc(12 * var(--u)); bottom: calc(240 * var(--u)); z-index: 5; pointer-events: auto;
+  width: min(340px, calc(100% - 24px)); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 8px;
+  background: rgba(24, 27, 32, .97); border: 1px solid var(--line); border-top: 3px solid var(--led); border-radius: 10px;
+}
+.pop button {
+  min-height: 48px; padding: 5px 3px; background: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  font-weight: 700; font-size: 13px; line-height: 1.2; letter-spacing: -.02em; touch-action: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.pop button:active { background: #3a2c12; border-color: var(--led); }
+.pop button kbd { display: none; font: 700 10px var(--body); color: var(--led); }
+.pop button.gold { border-color: var(--led); color: var(--led); }
+#pop-say { grid-template-columns: 1fr 1fr; width: min(300px, calc(100% - 24px)); }
+#pop-say button { font-size: 14px; }
 .chip {
-  position: absolute; right: 0; bottom: calc(222 * var(--u)); max-width: calc(100vw - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: absolute; right: 0; bottom: calc(228 * var(--u)); max-width: calc(var(--sw, 100vw) - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   background: var(--led); color: var(--on-led); border: 0; border-radius: 999px; padding: 7px 14px; font-weight: 700; font-size: 13px;
 }
 #hint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); margin: 0; width: max-content; max-width: calc(100% - 560px); color: var(--muted); font-size: 12px; text-align: center; text-shadow: 0 1px 2px #000; display: none; }
+
+/* the struggle inside a technique: a bar pulled one way by the attacker, the other by the defender */
+.mash {
+  position: absolute; left: 50%; top: 21%; transform: translateX(-50%); width: min(300px, 62%); z-index: 3; pointer-events: none;
+  display: flex; flex-direction: column; gap: 5px; text-align: center; padding: 8px 12px;
+  background: rgba(15, 17, 20, .84); border: 1px solid var(--line); border-top: 3px solid var(--led); border-radius: 8px;
+}
+.mash p { margin: 0; font-family: var(--display); font-size: 17px; line-height: 1.2; color: var(--led); }
+.tug { position: relative; height: 12px; background: #3d6fb3; border-radius: 6px; overflow: hidden; }
+.tug i { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; background: var(--led); transition: width .08s linear; }
+.tug-ends { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+/* the word that fills the screen at a tap or an escape */
+.flash {
+  position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); z-index: 4; pointer-events: none; white-space: nowrap;
+  font-family: var(--display); font-size: clamp(54px, 15vmin, 118px); line-height: 1; color: var(--led);
+  text-shadow: 0 4px 0 #000, 0 0 28px rgba(255, 215, 154, .6); animation: flashIn 1.5s ease-out both;
+}
+.flash.esc { color: #a9d4ff; text-shadow: 0 4px 0 #000, 0 0 28px rgba(120, 180, 255, .6); }
+@keyframes flashIn {
+  0% { transform: translate(-50%, -50%) scale(.4); opacity: 0; }
+  14% { transform: translate(-50%, -50%) scale(1.18); opacity: 1; }
+  26% { transform: translate(-50%, -50%) scale(1); }
+  78% { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.06); opacity: 0; }
+}
+.flash.count { animation-duration: .9s; font-size: clamp(64px, 20vmin, 150px); }
+.tool.badge { border-color: var(--led); color: var(--led); pointer-events: none; }
+/* a points match: my points, the clock and the position, the other's points */
+.matchbar {
+  position: absolute; left: 12px; top: 64px; z-index: 3; pointer-events: none;
+  display: flex; align-items: stretch; background: rgba(15, 17, 20, .9); border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+}
+.mt-side { min-width: 46px; padding: 2px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.mt-side b { font-family: var(--display); font-weight: 400; font-size: 26px; line-height: 1.1; }
+.mt-side small { font-size: 10.5px; font-weight: 700; color: var(--muted); max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-side.me { background: #3a2c12; }
+.mt-side.me b { color: var(--led); }
+.mt-mid { padding: 4px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; white-space: nowrap; }
+.mt-mid i { font-style: normal; font-family: var(--display); font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.mt-mid em { font-style: normal; font-weight: 700; font-size: 12.5px; color: var(--muted); }
+#mt-short { display: none; }
+@media (min-width: 820px) { .matchbar { left: 50%; top: 8px; transform: translateX(-50%); } }
+/* the white blink of a photo being taken, and the picture afterwards */
+.shutter { position: absolute; inset: 0; z-index: 9; background: #fff; pointer-events: none; animation: shut .5s ease-out both; }
+@keyframes shut { from { opacity: .95; } to { opacity: 0; } }
+#photo-img { display: block; max-width: 100%; max-height: 62vmin; margin: 0 auto; border-radius: 6px; background: #000; -webkit-touch-callout: default; }
 
 /* rock-paper-scissors */
 .rps {
@@ -218,9 +303,20 @@ legend .n { font-family: var(--body); font-size: 12px; font-weight: 700; color: 
 .tbar i { display: block; height: 100%; background: var(--led); transform-origin: left; }
 .rps-status { font-weight: 500; }
 .mini { align-self: center; padding: 8px 14px; background: transparent; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; font-weight: 700; }
+.rps-foot { display: contents; }
+/* the hands inside a points match: a low strip, so that the two bodies stay in view above it */
+.rps.match { top: auto; bottom: 38px; transform: translateX(-50%); width: min(320px, calc(100% - 24px)); padding: 8px 10px; gap: 6px; }
+.rps.match .rps-title { font-size: 16px; }
+.rps.match .hand { padding: 3px 4px; gap: 0; font-size: 12px; line-height: 1.15; }
+.rps.match .hand i { font-size: 24px; line-height: 1.1; }
+.rps.match .versus { font-size: 28px; gap: 12px; line-height: 1.05; }
+.rps.match .versus small { font-size: 11px; line-height: 1.2; }
+.rps.match .rps-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; }
+.rps.match .rps-status { font-size: 13px; line-height: 1.3; text-align: left; }
+.rps.match .mini { align-self: auto; flex: none; padding: 3px 9px; font-size: 12px; line-height: 1.3; }
 
 /* ---------- dialogs ---------- */
-.modal { position: absolute; inset: 0; z-index: 8; background: rgba(8, 9, 11, .68); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+.modal { position: absolute; inset: 0; z-index: 8; background: rgba(8, 9, 11, .68); display: grid; place-items: center; padding: max(12px, var(--sat)) max(12px, var(--sar)) max(12px, var(--sab)) max(12px, var(--sal)); }
 .card {
   background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--led); border-radius: 8px;
   padding: 20px; width: min(580px, 100%); max-height: 100%; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 14px;
@@ -256,6 +352,30 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
 .slot label { font-weight: 700; }
 .slot input[type="file"] { max-width: 100%; font-size: 13px; }
 .slot .clear { align-self: flex-start; padding: 5px 10px; background: transparent; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; }
+/* guestbook: a wall of small drawings, and the pad for making one */
+.card.wide { width: min(760px, 100%); }
+#gb-list, #gb-pad { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.gb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.gb-card { margin: 0; display: flex; flex-direction: column; gap: 5px; padding: 6px; background: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+.gb-card canvas { display: block; width: 100%; height: auto; aspect-ratio: 256 / 160; background: #f6f3ea; border-radius: 3px; }
+.gb-card figcaption { font-size: 12px; line-height: 1.35; word-break: keep-all; }
+.gb-card .del { align-self: flex-start; padding: 3px 9px; background: transparent; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; }
+.gb-draw { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.gb-draw.side { flex-direction: row; align-items: stretch; justify-content: center; }
+#gb-canvas { display: block; flex: none; background: #f6f3ea; border-radius: 6px; touch-action: none; cursor: crosshair; }
+.gb-tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: center; }
+.gb-tools p { margin: 0; flex-basis: 100%; text-align: center; }
+.gb-draw.side .gb-tools { flex-direction: column; flex-wrap: nowrap; width: 140px; flex: none; justify-content: space-between; gap: 6px; }
+.gb-draw.side .gb-tools p { flex-basis: auto; font-size: 12px; line-height: 1.3; }
+.gb-draw.side #gb-inks { display: grid; grid-template-columns: repeat(3, 28px); }
+.gb-draw.side .ink { width: 28px; height: 28px; }
+.gb-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; }
+.gb-row .mini, .gb-row .send { padding: 6px 9px; font-size: 12.5px; white-space: nowrap; }
+.ink { width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .28); background: var(--c); }
+.ink[aria-pressed="true"] { border-color: var(--led); box-shadow: 0 0 0 2px var(--led); }
+.pen { width: 34px; height: 30px; padding: 0; border-radius: 6px; border: 1px solid var(--line); background: var(--ink); display: grid; place-items: center; }
+.pen i { display: block; width: var(--d); height: var(--d); border-radius: 50%; background: var(--mat); }
+.pen[aria-pressed="true"] { border-color: var(--led); box-shadow: 0 0 0 1px var(--led); }
 .keys { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
 .keys dt { color: var(--led); font-weight: 700; white-space: nowrap; }
 .keys dd { margin: 0; }
@@ -288,15 +408,72 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
   .brand { padding: 14px 18px; max-width: none; }
   h1 { font-size: clamp(28px, 7vh, 44px); }
   .panel { border-top: 0; border-left: 1px solid var(--line); border-radius: 0; }
+  .where { max-width: 158px; }
   .where strong { font-size: 14px; }
   .where span { font-size: 12px; }
-  .camrow { top: 58px; }
-  #toasts { top: 10px; width: min(calc(100% - 420px), 460px); }
+  .camrow { top: 56px; }
+  .cb { width: 38px; height: 38px; }
+  /* messages take the band between the place name and the buttons on the right */
+  #toasts { top: 10px; left: 176px; right: 198px; transform: none; width: auto; min-width: 0; }
   .toast { font-size: 13px; padding: 6px 12px; }
-  .rps { top: 50%; padding: 10px; gap: 8px; }
+  .chip { padding: 5px 12px; font-size: 12.5px; }
+  .pop { right: calc(236 * var(--u)); bottom: calc(12 * var(--u)); }
+  .mash { top: auto; bottom: 8px; width: min(250px, 36%); padding: 6px 10px; }
+  .mash p { font-size: 15px; }
+  /* (a little left of the middle: the buttons on the right reach further in than the stick on the left) */
+  .matchbar { left: calc(50% - 18px); top: auto; bottom: 8px; transform: translateX(-50%); }
+  .mt-side { min-width: 38px; padding: 0 9px; }
+  .mt-side b { font-size: 21px; }
+  .mt-side small, #mt-pos { display: none; }
+  .mt-mid { flex-direction: row; align-items: baseline; gap: 7px; padding: 3px 10px; }
+  .mt-mid i { font-size: 17px; }
+  #mt-short { display: inline; }
+  .matchbar[data-top="me"] .mt-side.me b::after, .matchbar[data-top="them"] .mt-side.them b::after { content: '▲'; font-size: 10px; vertical-align: 8px; margin-left: 2px; }
+  #matchbar:not([hidden]) + .mash { bottom: 45px; left: calc(50% - 18px); }
+  .rps { top: calc(50% - 6px); padding: 10px; gap: 8px; }
+  /* between the stick and the buttons, right above the bar */
+  .rps.match { top: auto; bottom: 45px; left: calc(50% - 18px); width: min(300px, calc(var(--sw, 100vw) - 446 * var(--u))); padding: 7px 8px; gap: 6px; }
+  /* the photo beside its buttons, so that all of it fits the short screen */
+  #modal-photo .card { display: grid; grid-template-columns: minmax(0, 1fr) 124px; grid-template-areas: "img head" "img note" "img btns"; column-gap: 12px; align-items: start; }
+  #modal-photo h2 { grid-area: head; font-size: 20px; }
+  #photo-img { grid-area: img; align-self: center; max-height: calc(100vh - 56px); }
+  #photo-note { grid-area: note; }
+  #modal-photo .rowbtn { grid-area: btns; flex-direction: column-reverse; align-items: stretch; align-self: end; }
+  #modal-photo .rowbtn button { align-self: stretch; }
   .hand i { font-size: 30px; }
   .card { padding: 14px; gap: 10px; }
 }
+/* the same tightening when the stage itself is turned on its side on an upright phone */
+html.rot .where { max-width: 158px; }
+html.rot .where strong { font-size: 14px; }
+html.rot .where span { font-size: 12px; }
+html.rot .camrow { top: 56px; }
+html.rot .cb { width: 38px; height: 38px; }
+html.rot #toasts { top: 10px; left: 176px; right: 198px; transform: none; width: auto; min-width: 0; }
+html.rot .toast { font-size: 13px; padding: 6px 12px; }
+html.rot .chip { padding: 5px 12px; font-size: 12.5px; }
+html.rot .pop { right: calc(236 * var(--u)); bottom: calc(12 * var(--u)); }
+html.rot .mash { top: auto; bottom: 8px; width: min(250px, 36%); padding: 6px 10px; }
+html.rot .mash p { font-size: 15px; }
+html.rot .matchbar { left: calc(50% - 18px); top: auto; bottom: 8px; transform: translateX(-50%); }
+html.rot .mt-side { min-width: 38px; padding: 0 9px; }
+html.rot .mt-side b { font-size: 21px; }
+html.rot .mt-side small, html.rot #mt-pos { display: none; }
+html.rot .mt-mid { flex-direction: row; align-items: baseline; gap: 7px; padding: 3px 10px; }
+html.rot .mt-mid i { font-size: 17px; }
+html.rot #mt-short { display: inline; }
+html.rot .matchbar[data-top="me"] .mt-side.me b::after, html.rot .matchbar[data-top="them"] .mt-side.them b::after { content: '▲'; font-size: 10px; vertical-align: 8px; margin-left: 2px; }
+html.rot #matchbar:not([hidden]) + .mash { bottom: 45px; left: calc(50% - 18px); }
+html.rot .rps { top: calc(50% - 6px); padding: 10px; gap: 8px; }
+html.rot .rps.match { top: auto; bottom: 45px; left: calc(50% - 18px); width: min(300px, calc(var(--sw, 100vw) - 446 * var(--u))); padding: 7px 8px; gap: 6px; }
+html.rot #modal-photo .card { display: grid; grid-template-columns: minmax(0, 1fr) 124px; grid-template-areas: "img head" "img note" "img btns"; column-gap: 12px; align-items: start; }
+html.rot #modal-photo h2 { grid-area: head; font-size: 20px; }
+html.rot #photo-img { grid-area: img; align-self: center; max-height: calc(var(--sh, 100vh) - 56px); }
+html.rot #photo-note { grid-area: note; }
+html.rot #modal-photo .rowbtn { grid-area: btns; flex-direction: column-reverse; align-items: stretch; align-self: end; }
+html.rot #modal-photo .rowbtn button { align-self: stretch; }
+html.rot .hand i { font-size: 30px; }
+html.rot .card { padding: 14px; gap: 10px; }
 @media (max-width: 480px) {
   .card { padding: 16px; }
   #modal-list th:first-child, #modal-list td:first-child { display: none; }
@@ -307,13 +484,14 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
 }
 @media (hover: hover) and (pointer: fine) {
   .stick-zone { display: none; }
-  .pb kbd { display: block; }
+  .pb kbd, .pop button kbd { display: block; }
   #hint { display: block; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
+<div id="stage">
 <canvas id="scene" aria-label="3D 장면"></canvas>
 
 <main id="start" class="start">
@@ -343,7 +521,7 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
             <rect x="5" y="52" width="110" height="1.5" fill="#ffd79a"/>
           </svg>
           <b>전주 퍼스트짐 도청점</b>
-          <small>우리 도장. 관장님께 시간표와 대회 신청을 물어볼 수 있습니다</small>
+          <small>우리 도장(6층). 폴딩도어 밖은 테라스 잔디마당, 관장님께는 시간표와 대회 신청</small>
           <em class="here" data-here="gym" hidden></em>
         </button>
         <button type="button" class="place" data-place="arena" aria-pressed="false">
@@ -408,6 +586,7 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
   <div class="hud-top">
     <div class="where"><strong id="place-name"></strong><span id="zone"></span></div>
     <div class="hud-tools">
+      <span class="tool badge" id="streak" hidden></span>
       <button type="button" class="tool" id="people-btn" aria-label="접속한 사람 보기"><span class="dot" id="net-dot" aria-hidden="true"></span><span><span id="people-n">1</span>명</span></button>
       <button type="button" class="tool" id="menu-btn" aria-expanded="false" aria-controls="menu">메뉴</button>
     </div>
@@ -422,8 +601,13 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
     <button type="button" id="m-place">대회장으로 이동</button>
     <button type="button" id="m-look">띠 · 도복 바꾸기</button>
     <button type="button" id="m-people">함께 접속한 사람</button>
+    <button type="button" id="m-guest">게시판</button>
+    <button type="button" id="m-photo">단체 사진 찍기</button>
     <button type="button" id="m-belt">띠 체계 보기</button>
     <button type="button" id="m-logo">로고 이미지 넣기</button>
+    <button type="button" id="m-app" hidden>앱처럼 열기</button>
+    <button type="button" id="m-land" hidden>세로로 보기</button>
+    <button type="button" id="m-flip" hidden>가로 화면 뒤집기</button>
     <button type="button" id="m-full" hidden>전체 화면</button>
     <button type="button" id="m-sound">소리 끄기</button>
     <button type="button" id="m-help">조작법</button>
@@ -440,21 +624,55 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
     </div>
     <div class="versus" id="rps-versus" hidden><span><span id="rps-me"></span><small>나</small></span><b>vs</b><span><span id="rps-them"></span><small>상대</small></span></div>
     <div class="tbar" id="rps-barwrap" aria-hidden="true"><i id="rps-bar"></i></div>
-    <p class="rps-status" id="rps-status" aria-live="polite"></p>
-    <button type="button" class="mini" id="rps-cancel">그만두기</button>
+    <div class="rps-foot">
+      <p class="rps-status" id="rps-status" aria-live="polite"></p>
+      <button type="button" class="mini" id="rps-cancel">그만두기</button>
+    </div>
   </div>
+
+  <div id="matchbar" class="matchbar" role="status" hidden>
+    <div class="mt-side me"><b id="mt-me">0</b><small>나</small></div>
+    <div class="mt-mid"><i id="mt-clock">0:00</i><em id="mt-pos"></em><em id="mt-short"></em></div>
+    <div class="mt-side them"><b id="mt-them">0</b><small id="mt-name">상대</small></div>
+  </div>
+  <div id="mash" class="mash" aria-live="off" hidden>
+    <p id="mash-text"></p>
+    <div class="tug" aria-hidden="true"><i id="mash-bar"></i></div>
+    <div class="tug-ends" aria-hidden="true"><span id="mash-l">탈출</span><span id="mash-r">탭</span></div>
+    <div class="tbar" id="mash-timewrap" aria-hidden="true"><i id="mash-time"></i></div>
+  </div>
+  <div id="flash" class="flash" role="status" hidden></div>
 
   <div id="stick-zone" class="stick-zone" aria-hidden="true"><div id="stick" class="stick"><i></i></div></div>
   <div class="pad" role="group" aria-label="동작">
     <button type="button" class="chip" id="chip" hidden></button>
     <button type="button" class="pb main" id="b-main">인사</button>
-    <button type="button" class="pb sk" data-act="ankle" aria-label="앵클락 걸기">앵클락<kbd>Q</kbd></button>
-    <button type="button" class="pb sk" data-act="arm" aria-label="암바 걸기">암바<kbd>R</kbd></button>
     <button type="button" class="pb" data-act="roll" aria-label="앞구르기">구르기<kbd>4</kbd></button>
-    <button type="button" class="pb sm" data-act="shrimp" aria-label="새우빼기">새우<br>빼기<kbd>3</kbd></button>
-    <button type="button" class="pb sm" data-act="sit" aria-label="정좌">정좌<kbd>2</kbd></button>
+    <button type="button" class="pb" data-act="shrimp" aria-label="새우빼기">새우<br>빼기<kbd>3</kbd></button>
+    <button type="button" class="pb" data-act="sit" aria-label="정좌">정좌<kbd>2</kbd></button>
+    <button type="button" class="pb" data-pop="say" aria-label="한마디 고르기" aria-haspopup="true" aria-expanded="false" aria-controls="pop-say">말<kbd>Z</kbd></button>
+    <button type="button" class="pb sk" data-pop="tech" aria-label="기술 고르기" aria-haspopup="true" aria-expanded="false" aria-controls="pop-tech">기술</button>
+    <button type="button" class="pb" data-act="bridge" aria-label="브릿지">브릿지<kbd>B</kbd></button>
+    <button type="button" class="pb" data-act="standup" aria-label="테크니컬 스탠드업">스탠드<br>업<kbd>N</kbd></button>
   </div>
-  <p id="hint">WASD 이동 · Shift 달리기 · 드래그 시점 · 휠 확대 · E 큰 버튼</p>
+  <div class="pop" id="pop-tech" role="group" aria-label="기술" hidden>
+    <button type="button" data-act="ankle">앵클락<kbd>Q</kbd></button>
+    <button type="button" data-act="arm">암바<kbd>R</kbd></button>
+    <button type="button" data-act="guil">길로틴<kbd>T</kbd></button>
+    <button type="button" data-act="omo">오모플라타<kbd>F</kbd></button>
+    <button type="button" data-act="rnc">백초크<kbd>G</kbd></button>
+    <button type="button" data-act="tri">트라이앵글<kbd>Y</kbd></button>
+    <button type="button" data-act="kim">기무라<kbd>H</kbd></button>
+    <button type="button" data-act="match" class="gold">한 판<kbd>M</kbd></button>
+  </div>
+  <div class="pop" id="pop-say" role="group" aria-label="한마디" hidden>
+    <button type="button" data-say="0">안녕하세요.<kbd>Z</kbd></button>
+    <button type="button" data-say="1">한판 하실래요?<kbd>X</kbd></button>
+    <button type="button" data-say="2">내일봐요<kbd>C</kbd></button>
+    <button type="button" data-act="shaka">🤙 샤카<kbd>V</kbd></button>
+    <button type="button" data-photo style="grid-column: span 2">📸 단체 사진<kbd>P</kbd></button>
+  </div>
+  <p id="hint">WASD 이동 · Shift 달리기 · 드래그 시점 · 휠 확대 · E/Space 큰 버튼</p>
 </div>
 
 <div class="modal" id="modal-belt" role="dialog" aria-modal="true" aria-labelledby="t-belt" hidden>
@@ -483,9 +701,10 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
     <h2 id="t-master">관장님</h2>
     <p>“무엇이 궁금한가요?”</p>
     <div class="asks">
-      <button type="button" class="ask" id="ask-time"><b>도청점 시간표</b><small>요일별 수업 시간</small></button>
+      <button type="button" class="ask" id="ask-time"><b>도청점 시간표</b><small>저녁 6시 · 7시 · 8시, 요일별 수업 순서</small></button>
       <button type="button" class="ask" id="ask-apply"><b>2027 IBJJF 신청하기</b><small>도장 참가 희망자 접수 · 대회 일정은 준비 중</small></button>
       <button type="button" class="ask" id="ask-list"><b>신청자 리스트 보기</b><small>지금까지 신청한 사람</small></button>
+      <button type="button" class="ask" id="ask-guest"><b>게시판</b><small>손가락으로 그려서 남기는 한마디</small></button>
     </div>
     <button type="button" class="close" data-close>닫기</button>
   </div>
@@ -494,25 +713,19 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
 <div class="modal" id="modal-time" role="dialog" aria-modal="true" aria-labelledby="t-time" hidden>
   <div class="card">
     <h2 id="t-time">도청점 시간표</h2>
-    <p class="sub" id="time-state">불러오는 중…</p>
-    <div class="tablewrap" id="time-view" hidden>
+    <p class="okmsg" id="time-today"></p>
+    <div class="tablewrap">
       <table>
-        <thead><tr><th>요일</th><th>시간</th><th>수업</th></tr></thead>
+        <thead><tr><th>요일</th><th>시작 시간</th><th>수업 순서</th></tr></thead>
         <tbody id="time-rows"></tbody>
       </table>
     </div>
-    <p id="time-note" hidden></p>
-    <form id="time-edit" class="stack" novalidate hidden>
-      <div id="time-inputs"></div>
-      <button type="button" class="mini" id="time-add">줄 추가</button>
-      <div class="field"><label for="time-memo">메모</label><input id="time-memo" type="text" maxlength="120" placeholder="예: 공휴일 휴관, 토요일 오픈매트"></div>
-      <div class="rowbtn"><button type="button" class="mini" id="time-cancel">취소</button><button type="submit" class="send" id="time-save">저장</button></div>
-    </form>
-    <div class="rowbtn"><button type="button" class="mini" id="time-editbtn" hidden>시간표 수정</button><button type="button" class="close" data-close>닫기</button></div>
+    <p class="sub">저녁 세 타임, 한 타임은 1시간입니다.</p>
+    <button type="button" class="close" data-close>닫기</button>
   </div>
 </div>
 
-<div class="modal" id="modal-apply" role="dialog" aria-modal="true" aria-labelledby="t-apply" hidden>
+<div class="modal" id="modal-apply" role="dialog" aria-modal="true" aria-labelledby="t-apply" data-upright hidden>
   <div class="card">
     <h2 id="t-apply">2027 IBJJF 신청하기</h2>
     <span class="tag">대회 일정 준비 중</span>
@@ -561,12 +774,14 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
 <div class="modal" id="modal-logo" role="dialog" aria-modal="true" aria-labelledby="t-logo" hidden>
   <div class="card">
     <h2 id="t-logo">로고 이미지 넣기</h2>
-    <p>가지고 있는 로고 파일을 고르면 맵 안의 배너 자리에 바로 들어갑니다. 이미지는 이 브라우저에만 저장됩니다.</p>
+    <p>가지고 있는 로고 파일을 고르면 맵 안의 배너 자리에 바로 들어갑니다. 여기서 고른 이미지는 이 브라우저에만 저장됩니다.</p>
+    <p class="sub">모든 방문자에게 보이게 하려면, 이 사이트를 올린 사람이 사이트 폴더에 <b>logo-gym.png</b>(도장)와 <b>logo-event.png</b>(대회) 파일을 넣으면 됩니다. 로고는 그 주인의 것이니, 쓰기 전에 허락을 받아 주세요.</p>
     <div class="slot">
       <div class="thumb"><img id="logo-gym-prev" alt="도장 로고 미리보기" hidden><span>도장</span></div>
       <div class="ctl">
         <label for="logo-gym">도장 로고</label>
-        <span class="sub">도장 벽 배너 2곳, 도복 등판</span>
+        <span class="sub">도장 벽 배너, 바깥 간판, 도복 등판</span>
+        <span class="sub" id="logo-gym-note" hidden>사이트에 올려 둔 로고가 쓰이고 있습니다.</span>
         <input id="logo-gym" type="file" accept="image/*">
         <button type="button" class="clear" id="logo-gym-clear" hidden>도장 로고 빼기</button>
       </div>
@@ -576,10 +791,60 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
       <div class="ctl">
         <label for="logo-event">대회 로고</label>
         <span class="sub">대회장 배너, 중앙 전광판, 시상대 배경</span>
+        <span class="sub" id="logo-event-note" hidden>사이트에 올려 둔 로고가 쓰이고 있습니다.</span>
         <input id="logo-event" type="file" accept="image/*">
         <button type="button" class="clear" id="logo-event-clear" hidden>대회 로고 빼기</button>
       </div>
     </div>
+    <button type="button" class="close" data-close>닫기</button>
+  </div>
+</div>
+
+<div class="modal" id="modal-guest" role="dialog" aria-modal="true" aria-labelledby="t-guest" hidden>
+  <div class="card wide">
+    <div id="gb-list">
+      <h2 id="t-guest">게시판</h2>
+      <p class="sub" id="gb-note"></p>
+      <div class="gb-grid" id="gb-grid"></div>
+      <p id="gb-empty" hidden>아직 남긴 그림이 없습니다. 첫 그림을 남겨 보세요.</p>
+      <div class="rowbtn"><button type="button" class="send" id="gb-new">그림 남기기</button><button type="button" class="close" data-close>닫기</button></div>
+    </div>
+    <div id="gb-pad" hidden>
+      <div class="gb-draw" id="gb-draw">
+        <canvas id="gb-canvas" width="768" height="480" aria-label="그림판. 손가락이나 마우스로 그립니다."></canvas>
+        <div class="gb-tools">
+          <p class="sub" id="gb-as"></p>
+          <div class="gb-row" role="group" aria-label="색" id="gb-inks"></div>
+          <div class="gb-row" role="group" aria-label="굵기" id="gb-pens"></div>
+          <div class="gb-row"><button type="button" class="mini" id="gb-undo">되돌리기</button><button type="button" class="mini" id="gb-clear">다 지우기</button></div>
+          <span class="sub" id="gb-ink" aria-live="polite"></span>
+          <div class="gb-row"><button type="button" class="mini" id="gb-back">취소</button><button type="button" class="send" id="gb-post">남기기</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-photo" role="dialog" aria-modal="true" aria-labelledby="t-photo" hidden>
+  <div class="card wide">
+    <h2 id="t-photo">단체 사진</h2>
+    <img id="photo-img" alt="방금 찍은 사진">
+    <p class="sub" id="photo-note">저장이 안 되면 사진을 길게 눌러 저장할 수 있습니다.</p>
+    <div class="rowbtn"><button type="button" class="mini" id="photo-again">다시 찍기</button><button type="button" class="mini" id="photo-share" hidden>보내기</button><button type="button" class="send" id="photo-save">저장</button><button type="button" class="close" data-close>닫기</button></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-app" role="dialog" aria-modal="true" aria-labelledby="t-app" hidden>
+  <div class="card">
+    <h2 id="t-app">앱처럼 열기</h2>
+    <p>홈 화면에 올려 두면 주소창 없이 가로 화면으로 바로 열립니다. 따로 내려받는 것은 없고, 열 때마다 인터넷은 필요합니다.</p>
+    <button type="button" class="send" id="app-install" hidden>이 기기에 설치</button>
+    <dl class="keys">
+      <dt>안드로이드</dt><dd>크롬이나 삼성 인터넷의 메뉴(⋮ 또는 ≡)에서 ‘홈 화면에 추가’ 또는 ‘앱 설치’.</dd>
+      <dt>아이폰</dt><dd>사파리 아래쪽의 공유 버튼에서 ‘홈 화면에 추가’.</dd>
+      <dt>카카오톡에서 열었다면</dt><dd>먼저 화면의 메뉴에서 ‘다른 브라우저로 열기’를 고른 뒤, 그 브라우저에서 위와 같이 합니다.</dd>
+    </dl>
+    <p class="sub">홈 화면에서 지우면 그대로 없어집니다. 기기에 따라 띠와 이름, 최고 기록이 브라우저와 따로 저장되어, 처음 열 때 다시 고르게 될 수 있습니다.</p>
     <button type="button" class="close" data-close>닫기</button>
   </div>
 </div>
@@ -589,15 +854,23 @@ form.stack { display: flex; flex-direction: column; gap: 12px; }
     <h2 id="t-help">조작법</h2>
     <dl class="keys">
       <dt>이동</dt><dd>왼쪽 아래 스틱. 끝까지 밀면 달립니다. 키보드는 W A S D, Shift로 달리기.</dd>
-      <dt>시점</dt><dd>오른쪽 위 ⟲ ⟳ ＋ － 버튼, 또는 화면을 끌거나 두 손가락으로 벌리고 오므립니다.</dd>
-      <dt>큰 버튼</dt><dd>평소에는 인사. 관장님이나 안내판 앞에서는 그 자리에서 할 수 있는 일로 바뀝니다. 키보드 E.</dd>
-      <dt>기술</dt><dd>매트 위에서 상대에게 붙으면 앵클락과 암바 버튼이 켜집니다. 누르면 가위바위보를 하고, 이긴 쪽이 상대를 넘어뜨려 그 기술을 겁니다. 키보드 Q, R.</dd>
-      <dt>드릴</dt><dd>구르기, 새우빼기는 매트 위에서만. 정좌는 어디서나. 키보드 4, 3, 2.</dd>
+      <dt>시점</dt><dd>오른쪽 위 ⟲ ⟳ ＋ － 버튼, 또는 화면을 끌거나 두 손가락으로 벌리고 오므립니다. 기술이 시작되면 시점이 잘 보이는 쪽으로 알아서 돌고, 직접 돌리면 그대로 둡니다.</dd>
+      <dt>큰 버튼</dt><dd>평소에는 인사. 관장님이나 안내판 앞에서는 그 자리에서 할 수 있는 일로 바뀝니다. 기술 도중과 새우빼기 경주에서는 연타하는 버튼입니다. 키보드 E 또는 Space.</dd>
+      <dt>기술</dt><dd>매트 위에서 상대에게 붙으면 ‘기술’ 버튼이 켜집니다. 누르면 앵클락, 암바, 길로틴, 오모플라타, 백초크, 트라이앵글, 기무라 가운데 고릅니다. 가위바위보에서 이긴 쪽이 기술을 걸고, 기술이 들어가면 둘 다 큰 버튼을 연타합니다. 걸린 쪽이 세 번 넘게 앞서면 빠져나옵니다. 키보드 Q R T F G Y H.</dd>
+      <dt>한 판</dt><dd>기술 목록의 ‘한 판’은 점수 경기입니다. 가위바위보를 이길 때마다 테이크다운 2점, 가드 패스 3점, 마운트 4점 순서로 올라가고, 마운트에서 한 번 더 이기면 서브미션을 시도합니다. 아래에 깔린 쪽이 이기면 스윕 2점. 시간이 끝나면 점수로 가립니다. 키보드 M.</dd>
+      <dt>드릴</dt><dd>구르기, 새우빼기, 브릿지, 테크니컬 스탠드업은 매트 위에서만. 정좌는 어디서나. 키보드 4, 3, B, N, 2.</dd>
+      <dt>말</dt><dd>‘말’ 버튼에서 한마디를 고르면 머리 위에 말풍선이 뜹니다. 샤카와 단체 사진도 여기 있습니다. 키보드 Z X C, 샤카 V, 사진 P.</dd>
+      <dt>경주</dt><dd>도장 매트 남쪽의 출발선에서 큰 버튼을 누르면 새우빼기 경주가 시작됩니다. 출발 신호 뒤에 누를 때마다 새우빼기 한 번, 빠르게 연타할수록 빨라집니다. 출발선 곁에 서 있던 사람은 함께 달리고, 스틱을 밀면 그만둡니다.</dd>
+      <dt>단체 사진</dt><dd>메뉴나 ‘말’ 목록의 단체 사진을 누르면 셋을 센 뒤 지금 화면이 버튼 없이 사진으로 찍힙니다. 같은 곳에 있는 사람들에게도 찍는다고 알려 줍니다. 사진은 이 기기에만 있고, 저장하거나 보내기 전에는 어디로도 나가지 않습니다.</dd>
+      <dt>게시판</dt><dd>도장 벽의 게시판이나 메뉴의 ‘게시판’에서 손가락으로 그려 한마디를 남깁니다. 남긴 날짜와 이름, 띠, 그랄이 함께 적힙니다.</dd>
       <dt>지도자석</dt><dd>대회장 매트 옆 COACH 자리는 검은 띠 1명만 앉을 수 있습니다.</dd>
       <dt>시상대</dt><dd>1 · 2 · 3위 자리에 올라서면 금 · 은 · 동메달이 걸립니다.</dd>
+      <dt>가로 화면</dt><dd>휴대폰에서는 입장하면 화면이 가로로 놓입니다. 휴대폰을 왼쪽으로 눕혀 잡아 주세요. 메뉴에서 반대쪽으로 뒤집거나 세로로 바꿀 수 있습니다.</dd>
     </dl>
     <button type="button" class="close" data-close>닫기</button>
   </div>
+</div>
+
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>

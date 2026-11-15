@@ -11,6 +11,11 @@
 //
 // The object returned by relayRoom() has the same shape as the platform room that net.js uses:
 // presence(patch), onPeers(fn), peers(), connected(), onConnection(fn).
+//
+// The relays also keep the guestbook (guest.js): each drawing is one retained message under
+// bd/<id>, which a relay hands to whoever subscribes later. Public relays promise nothing about
+// how long they keep such messages, so every visitor's browser remembers the drawings it has seen
+// and puts back the ones a relay has lost.
 
 // Checked from a real browser on 2026-11-14 with the exact bytes this file sends: all three accept
 // the connection, confirm the subscription, hand a sender's own message back and pass it on to
@@ -31,6 +36,9 @@ const MAX_PEERS = 32;
 const MAX_BODY = 900; // bytes of JSON accepted from anyone
 const MAX_PACKET = 4096; // bytes; anything bigger is skipped without being buffered
 const MAX_RATE = 60; // messages per second accepted from one sender
+const MAX_BOARD = 3400; // bytes of one guestbook entry
+const BOARD_IN = 600; // guestbook messages taken from one relay connection; the rest are ignored
+const SEED_AFTER = 5000; // ms after subscribing before missing guestbook entries are put back
 const ID_RE = /^[a-z0-9]{10}$/;
 const PLACE_RE = /^[a-z]{1,12}$/;
 
@@ -198,6 +206,8 @@ class Link {
     this.upAt = 0;
     this.rx = 0;
     this.due = 0; // an echo of our own heartbeat has to arrive by then
+    this.have = new Set(); // guestbook entries this relay has shown us
+    this.bdN = 0;
   }
 
   open() {
@@ -248,7 +258,10 @@ class Link {
       this.upAt = now;
       this.due = now + 8000;
       this.ping = now;
+      this.have = new Set();
+      this.bdN = 0;
       this.sub(`${o.base}/hb/+`);
+      this.sub(`${o.base}/bd/+`);
       if (o.place) this.sub(`${o.base}/mv/${o.place}/+`);
       o._linkUp(this);
     } else if (t === 3) {
@@ -257,10 +270,14 @@ class Link {
       const tl = (b[0] << 8) | b[1];
       let at = 2 + tl;
       if (f & 6) at += 2;
-      if (at > b.length || (f & 1)) return; // a retained copy is old by definition
+      if (at > b.length) return;
       let topic;
       try { topic = td.decode(b.subarray(2, 2 + tl)); } catch (e) { return; }
-      o._msg(this, topic, b.subarray(at));
+      const bd = topic.startsWith(`${o.base}/bd/`);
+      // a kept copy of anything but a guestbook entry is old by definition
+      if ((f & 1) && !bd) return;
+      if (bd) o._board(this, topic.slice(o.base.length + 4), b.subarray(at));
+      else o._msg(this, topic, b.subarray(at));
     } else if (t === 9) this.acked = true; // SUBACK
   }
 
@@ -283,10 +300,11 @@ class Link {
     this._raw(frame(10, 2, [this._pid(), utf(topic)]));
   }
 
-  pub(topic, body, force) {
+  // keep: ask the relay to hold on to the message for later subscribers (guestbook entries only)
+  pub(topic, body, force, keep) {
     if (!this.up || !this.ws) return false;
     if (!force && this.ws.bufferedAmount > 32768) return false; // a slow network: skip instead of piling up
-    this._raw(frame(3, 0, [topic, body]));
+    this._raw(frame(3, keep ? 1 : 0, [topic, body]));
     return true;
   }
 
@@ -317,6 +335,7 @@ class Link {
       return;
     }
     if (this.good && this.wait && now - this.upAt > 10000) this.wait = 0; // it held: forget the backoff
+    if (this.acked && now - this.upAt > SEED_AFTER) this.o._seed(this);
   }
 
   _detach() {
@@ -387,7 +406,9 @@ export class Relay {
     this.asleep = false;
     this.sleptAt = 0;
     this.closed = false;
-    this.sent = { hb: 0, mv: 0 };
+    this.sent = { hb: 0, mv: 0, bd: 0 };
+    this.bs = new Set(); // guestbook listeners
+    this.boardWant = null; // () => [[id, bytes], ...]: the entries the guestbook wants every relay to hold
     this.links = this.urls.map((u, i) => new Link(this, i, u));
     for (const l of this.links) l.open();
     this.timer = setInterval(() => this._tick(), SEND_EVERY);
@@ -546,6 +567,51 @@ export class Relay {
     for (const [id, g] of this.gone) if (now - g.at > 15000) this.gone.delete(id);
     if (left) this._fire(left);
     for (const l of this.links) l.check(now);
+  }
+
+  /* ---------- guestbook ---------- */
+
+  // fn(id, bytes) for every guestbook entry a relay shows us, kept ones and new ones alike.
+  onBoard(fn) {
+    this.bs.add(fn);
+    return () => this.bs.delete(fn);
+  }
+
+  // Put an entry on every relay that is connected; _seed() brings it to the others later.
+  postBoard(id, bytes) {
+    if (!ID_RE.test(id) || bytes.length > MAX_BOARD) return 0;
+    const topic = utf(`${this.base}/bd/${id}`);
+    let n = 0;
+    for (const l of this.links) {
+      if (!l.pub(topic, bytes, true, true)) continue;
+      l.have.add(id);
+      n++;
+    }
+    this.sent.bd += n;
+    return n;
+  }
+
+  _board(link, id, bytes) {
+    if (!ID_RE.test(id) || bytes.length > MAX_BOARD || ++link.bdN > BOARD_IN) return;
+    link.have.add(id);
+    if (!bytes.length) return; // cleared on the relay by hand: says nothing about the entry itself
+    for (const h of this.bs) {
+      try { h(id, bytes); } catch (e) { /* a handler's own problem */ }
+    }
+  }
+
+  // A relay that has had time to show what it holds, and still lacks entries we know: put a few
+  // back each second, newest first.
+  _seed(link) {
+    if (!this.boardWant || this.asleep) return;
+    let n = 0;
+    for (const [id, bytes] of this.boardWant()) {
+      if (link.have.has(id)) continue;
+      if (!link.pub(utf(`${this.base}/bd/${id}`), bytes, false, true)) return;
+      link.have.add(id);
+      this.sent.bd++;
+      if (++n >= 3) return;
+    }
   }
 
   /* ---------- receiving ---------- */
@@ -738,7 +804,7 @@ function localRelays() {
 }
 
 // ?r=code keeps a group to itself; everyone else shares the main room.
-function roomCode() {
+export function roomCode() {
   try {
     const m = /[?&]r=([^&]+)/.exec(location.search);
     return m ? cleanCode(decodeURIComponent(m[1])) : '';

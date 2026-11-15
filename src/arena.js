@@ -284,7 +284,7 @@ export function buildArena(api) {
           lastBow = nowMs();
           a2.bow();
         }
-        tipOnce('mat', '빈 매트에 올랐습니다. 상대에게 붙어서 앵클락이나 암바 버튼을 누르면 가위바위보로 승부합니다', 5200);
+        tipOnce('mat', '빈 매트에 올랐습니다. 상대에게 붙어서 기술 버튼을 누르면 가위바위보로 승부하고, ‘한 판’은 점수 경기입니다', 5200);
       },
     });
     const seatId = `coach${m.n}`;
@@ -317,12 +317,17 @@ export function buildArena(api) {
     for (const m of mats) {
       const box = [m.cx - 5, m.cx + 5, m.cz - 5, m.cz + 5];
       const b = api.boutIn(...box);
-      const r = b ? null : api.lastIn(...box);
+      const mt = api.matchIn(...box);
+      const r = b || (mt && !mt.end) ? null : api.lastIn(...box); // a match that has just ended shows its result at once
       let d;
-      if (b) d = { n: m.n, div: KINDS[b.kind], a: b.names[0], b: b.names[1], ma: b.tapped ? '승' : '', mb: b.tapped ? '탭' : '', foot: b.tapped ? `탭! ${b.names[0]} 승` : '기술 진행 중', hot: b.tapped };
+      if (mt && !mt.end) {
+        // a points match: the two names with their points, and the clock
+        const clock = `${(mt.left / 60) | 0}:${String(mt.left % 60).padStart(2, '0')}`;
+        d = { n: m.n, div: '한 판', a: mt.a, b: mt.b, ma: String(mt.sa), mb: String(mt.sb), foot: b ? `${KINDS[b.kind]} · ${clock}` : `${clock}${mt.pos ? ` · ${mt.pos}` : ''}`, hot: !!b };
+      } else if (b) d = { n: m.n, div: KINDS[b.kind], a: b.names[0], b: b.names[1], ma: b.tapped ? '승' : '', mb: b.tapped ? '탭' : '', foot: b.tapped ? `탭! ${b.names[0]} 승` : '기술 진행 중', hot: b.tapped };
       else if (r) d = { n: m.n, div: '결과', a: r.text, b: '', ma: '', mb: '', foot: '다음 선수 입장', hot: true };
-      else d = { n: m.n, div: '빈 매트', a: '누구나 올라올 수 있습니다', b: '붙어서 기술 버튼 → 가위바위보', ma: '', mb: '', foot: '이긴 쪽이 기술을 겁니다', hot: false };
-      const key = `${d.div}|${d.a}|${d.b}|${d.foot}`;
+      else d = { n: m.n, div: '빈 매트', a: '누구나 올라올 수 있습니다', b: '붙어서 기술 → 한 판', ma: '', mb: '', foot: '점수 경기는 여기서', hot: false };
+      const key = `${d.div}|${d.a}|${d.b}|${d.ma}|${d.mb}|${d.foot}`;
       if (key === m.key) continue;
       m.key = key;
       m.data = d;
@@ -365,7 +370,7 @@ export function buildArena(api) {
       c.fillStyle = '#f2c230';
       c.font = FONT(Math.round(H * 0.09));
       c.fillText('안내', W * 0.04, H * 0.085);
-      const rows = ['MAT 1 · MAT 2  빈 매트, 누구나 입장', '상대에게 붙어서 앵클락 · 암바 버튼', '가위바위보에서 이긴 쪽이 기술을 겁니다', '지도자석은 검은 띠 1명만', '시상대는 동쪽 끝'];
+      const rows = ['MAT 1 · MAT 2  빈 매트, 누구나 입장', '상대에게 붙어서 기술 버튼 · 한 판은 점수 경기', '가위바위보에서 이긴 쪽이 기술을 겁니다', '지도자석은 검은 띠 1명만', '시상대는 동쪽 끝'];
       rows.forEach((t, i) => {
         c.fillStyle = i === 0 ? '#f4f6f8' : '#c9d2dc';
         fitText(c, t, W * 0.04, H * (0.28 + i * 0.145), W * 0.92, Math.round(H * 0.075), i === 0 ? 700 : 500);

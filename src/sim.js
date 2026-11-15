@@ -1,8 +1,10 @@
 // Game logic with no rendering or DOM: player movement, collisions, actions, zones, NPC updates,
 // rock-paper-scissors duels and the two-person techniques that follow them.
-import { BELTS, turnToward } from './util.js';
-import { Character, SHRIMP, ROLL, BOW, TECH } from './character.js';
-import { Bout, KINDS, KIND_OBJ, KIND_SUBJ, rpsResult, randomPick } from './tech.js';
+import { BELTS, turnToward, clamp } from './util.js';
+import { Character, SHRIMP, ROLL, BOW, TECH, GREET, SHAKA, BRIDGE, STANDUP } from './character.js';
+import { Bout, KINDS, KIND_OBJ, KIND_SUBJ, SAYS, MARGIN, rpsResult, randomPick, isKind } from './tech.js';
+import { MatchMixin, posCode } from './match.js';
+import { RaceMixin } from './race.js';
 
 const STEP = 0.72; // highest ledge the player can step onto
 const HEIGHT = 1.75;
@@ -10,6 +12,8 @@ const R = 0.3;
 const REACH = 1.7; // how close a partner must be to start a technique
 const PICK_TIME = 7; // seconds to choose a hand before one is chosen at random
 const GAP = 0.55; // each fighter stands this far from the midpoint during the duel
+const SOLO = new Set(['bow', 'sit', 'shrimp', 'roll', 'shaka', 'bridge', 'standup']); // what doAction accepts
+const ON_MAT = new Set(['shrimp', 'roll', 'bridge', 'standup']); // drills that need a mat under them
 
 export class Sim {
   constructor(hooks = {}) {
@@ -18,7 +22,7 @@ export class Sim {
     this.p = {
       x: 0, y: 0, z: 0, yaw: 0, vy: 0, px: 0, pz: 0, mode: 'free', act: null, actT: 0, actN: 0,
       speed: 0, onMat: false, zones: new Set(), seat: null, seatT: 0, lockT: 0,
-      duel: null, bout: null, medal: 0,
+      duel: null, bout: null, medal: 0, race: null, raceOut: null, pose: '', photo: null,
     };
     this.char = new Character({ cast: true, player: true, blob: true });
     this.p.char = this.char; // the player state doubles as a Bout actor
@@ -29,7 +33,14 @@ export class Sim {
     this.peers = () => []; // avatars of other people in this place (set by the network layer)
     this.myPeer = '';
     this.npcPick = () => randomPick();
+    // how many times an NPC hammers during the struggle of a technique: as the one held it tries a
+    // little (so a hold nobody tightens is sometimes lost), as the one holding somewhat more
+    this.npcMash = (role) => (role === 'd' ? (Math.random() * 5) | 0 : 2 + ((Math.random() * 6) | 0));
+    this.streak = 0; // techniques finished in a row without being tapped
     this._seq = 0;
+    this._raced = new Set(); // races taken part in
+    this._raceTold = new Set(); // other people's finishes already announced
+    this._raceFin = new Map(); // race id -> who has been seen finishing it
     this._done = new Set();
     this._cool = 0;
     this._partner = undefined;
@@ -62,6 +73,11 @@ export class Sim {
       },
       openBelt: () => { if (s.h.openBelt) s.h.openBelt(); },
       open: (what) => { if (s.h.open) s.h.open(what); },
+      // guestbook entries, newest first (empty where there is no guestbook)
+      board: () => (s.h.board ? s.h.board() : []),
+      race: () => s.startRace(),
+      racing: () => !!s.p.race,
+      matchIn: (x0, x1, z0, z1) => s.matchIn(x0, x1, z0, z1),
       // Is someone else already sitting on this seat?
       seatTaken: (id) => {
         for (const av of s.peers()) if (av.seat === id) return true;
@@ -96,6 +112,8 @@ export class Sim {
     p.act = null;
     p.seat = null;
     p.bout = null;
+    p.race = null;
+    p.raceOut = null;
     p.lockT = 0;
     p.vy = 0;
     p.medal = 0;
@@ -151,13 +169,13 @@ export class Sim {
 
   get busy() {
     const m = this.p.mode;
-    return m === 'duel' || m === 'bout';
+    return m === 'duel' || m === 'bout' || m === 'race';
   }
 
   doAction(name, auto) {
     const p = this.p;
     const c = this.char;
-    if (!this.world || this.busy) return;
+    if (!this.world || this.busy || !SOLO.has(name)) return;
     if (p.mode === 'seated') {
       if (!auto) this.toast('자리에서 일어나려면 이동하세요');
       return;
@@ -174,8 +192,8 @@ export class Sim {
       }
       return;
     }
-    if ((name === 'shrimp' || name === 'roll') && !p.onMat) {
-      this.toast('새우빼기와 앞구르기는 매트 위에서 할 수 있습니다');
+    if (ON_MAT.has(name) && !p.onMat) {
+      this.toast('이 동작은 매트 위에서 할 수 있습니다');
       return;
     }
     p.mode = 'action';
@@ -183,6 +201,30 @@ export class Sim {
     p.actT = 0;
     p.actN++;
     c.play(name);
+    if (name === 'shaka') c.say('🤙', SHAKA.dur);
+  }
+
+  // One of the quick phrases, shown as a bubble over the head here and for everyone in the place.
+  say(i) {
+    const p = this.p;
+    if (!this.world || !SAYS[i] || this.t - (this._saidAt == null ? -9 : this._saidAt) < 1) return false;
+    this._saidAt = this.t;
+    p.sayN = (p.sayN || 0) + 1;
+    p.say = { i, n: p.sayN, until: this.t + 4.2 };
+    this.char.say(SAYS[i], 4);
+    // whoever stands closest answers
+    let best = null;
+    let bd = 3.4;
+    for (const n of this.world.npcs) {
+      if (!n.lines || n.ctrl) continue;
+      const d = Math.hypot(n.x - p.x, n.z - p.z);
+      if (d < bd && Math.abs(n.y - p.y) < 1) {
+        bd = d;
+        best = n;
+      }
+    }
+    if (best) best.reply = { t: 0.9, text: best.lines[i] };
+    return true;
   }
 
   _endAction() {
@@ -198,6 +240,17 @@ export class Sim {
     const fz = Math.cos(p.yaw);
     if (p.act === 'bow') {
       if (p.actT >= BOW.dur) this._endAction();
+    } else if (p.act === 'shaka') {
+      if (p.actT >= SHAKA.dur || (mag > 0.6 && p.actT > 0.4)) this._endAction();
+    } else if (p.act === 'bridge') {
+      if (p.actT >= BRIDGE.cycle * BRIDGE.reps || (mag > 0.6 && p.actT > 0.5)) this._endAction();
+    } else if (p.act === 'standup') {
+      const u = p.actT / STANDUP.dur;
+      if (u > STANDUP.a && u < STANDUP.b) {
+        const v = STANDUP.dist / ((STANDUP.b - STANDUP.a) * STANDUP.dur);
+        this._move(-fx * v * dt, -fz * v * dt);
+      }
+      if (u >= 1) this._endAction();
     } else if (p.act === 'roll') {
       const u = p.actT / ROLL.dur;
       if (u > ROLL.a && u < ROLL.b) {
@@ -271,7 +324,8 @@ export class Sim {
   _duelView() {
     const d = this.p.duel;
     if (!this.h.duel) return;
-    const key = d ? `${d.id}|${d.phase}|${d.round}|${d.pick}|${d.phase === 'reveal' ? d.their : ''}` : '';
+    const M = d && d.kind === 'match' ? this._matchInfo() : null;
+    const key = d ? `${d.id}|${d.phase}|${d.round}|${d.pick}|${d.phase === 'reveal' ? d.their : ''}|${M ? `${M.me}|${M.them}|${M.left}|${M.pos}|${M.top}|${M.end}` : ''}` : '';
     if (key === this._duelKey) return;
     this._duelKey = key;
     if (!d) {
@@ -282,16 +336,19 @@ export class Sim {
       kind: d.kind, name: d.name, mine: d.mine, round: d.round, phase: d.phase,
       pick: d.pick, their: d.phase === 'reveal' ? d.their : null, result: d.result,
       left: d.phase === 'pick' ? Math.max(0, PICK_TIME - d.t) : 0, total: PICK_TIME,
+      match: M, // a points match: score, clock and position (null for a single technique)
     });
   }
 
   // Player pressed a technique button.
+  // kind: a technique, or 'match' for a points match.
   challenge(kind) {
     const p = this.p;
-    if (!this.world || !KINDS[kind] || this.busy) return false;
+    const match = kind === 'match';
+    if (!this.world || !(match || isKind(kind)) || this.busy) return false;
     if (p.mode === 'seated' || p.mode === 'action') return false;
     if (!p.onMat) {
-      this.toast('기술은 매트 위에서 걸 수 있습니다');
+      this.toast(match ? '한 판은 매트 위에서 붙을 수 있습니다' : '기술은 매트 위에서 걸 수 있습니다');
       return false;
     }
     if (this._cool > 0) return false;
@@ -303,8 +360,9 @@ export class Sim {
     const o = tg.act;
     this._beginDuel({
       id: `${this.myPeer || 'solo'}-${++this._seq}`, kind, tgt: tg, name: tg.name, mine: true, round: 1,
-      phase: tg.av ? 'wait' : 'pick', ox: (p.x + o.x) / 2, oz: (p.z + o.z) / 2, yaw: Math.atan2(o.x - p.x, o.z - p.z),
+      phase: tg.av ? 'wait' : match ? 'intro' : 'pick', ox: (p.x + o.x) / 2, oz: (p.z + o.z) / 2, yaw: Math.atan2(o.x - p.x, o.z - p.z),
     });
+    if (match && !tg.av) this._matchIntro();
     if (tg.npc) {
       tg.npc.busy = true;
       tg.npc.back = false;
@@ -319,11 +377,13 @@ export class Sim {
     if (!this.world || this.busy || p.mode === 'seated' || p.mode === 'action') return false;
     if (this._done.has(du.id) || this._cool > 0) return false;
     if (Math.hypot(du.ox - p.x, du.oz - p.z) > 3) return false;
+    const match = du.k === 'match';
     this._beginDuel({
       id: du.id, kind: du.k, tgt: { av, act: av, name: av.name }, name: av.name, mine: false, round: du.r || 1,
-      phase: 'pick', ox: du.ox, oz: du.oz, yaw: du.yw,
+      phase: match ? 'intro' : 'pick', ox: du.ox, oz: du.oz, yaw: du.yw,
     });
-    this.toast(`${av.name} 님이 ${KINDS[du.k]} 승부를 걸었습니다`);
+    if (match) this._matchIntro();
+    else this.toast(`${av.name} 님이 ${KINDS[du.k]} 승부를 걸었습니다`);
     return true;
   }
 
@@ -339,6 +399,7 @@ export class Sim {
     p.act = null;
     this.char.play('stance');
     this._done.add(d.id);
+    if (d.kind === 'match') this._matchInit(d);
     this._duelView();
   }
 
@@ -354,9 +415,17 @@ export class Sim {
     const d = p.duel;
     if (!d) return;
     p.duel = null;
+    if (d.kind === 'match') {
+      // bodies go back to moving at their own pace, and the other person's avatar to its owner
+      this.char.rate = 20;
+      p.pose = '';
+      if (d.tgt.npc) d.tgt.npc.char.rate = 20;
+      if (d.tgt.av) d.tgt.av.ctl = null;
+    }
     if (d.tgt.npc) d.tgt.npc.release();
     if (p.mode === 'duel') {
       p.mode = 'free';
+      p.actN++;
       this.char.play('loco');
     }
     this._cool = 1;
@@ -367,12 +436,19 @@ export class Sim {
   // Player backed out before choosing.
   cancelDuel() {
     const d = this.p.duel;
-    if (d && d.phase !== 'reveal') this._dropDuel('승부를 취소했습니다');
+    if (!d || this.p.mode !== 'duel') return;
+    if (d.kind === 'match') {
+      if (d.phase !== 'end') this._dropDuel('한 판을 그만두었습니다');
+    } else if (d.phase !== 'reveal') this._dropDuel('승부를 취소했습니다');
   }
 
   _stepDuel(dt) {
     const p = this.p;
     const d = p.duel;
+    if (d.kind === 'match') {
+      this._stepMatch(dt);
+      return;
+    }
     d.t += dt;
     const ux = Math.sin(d.yaw);
     const uz = Math.cos(d.yaw);
@@ -458,6 +534,9 @@ export class Sim {
     bout.mine = true;
     bout.iWin = iWin;
     bout.tgt = d.tgt;
+    // The struggle is decided where the defender plays; against an NPC, here.
+    if (!iWin || d.tgt.npc) bout.judge = (b) => (b.m.d >= b.m.a + MARGIN ? 1 : 2);
+    if (d.tgt.npc) bout.npcM = this.npcMash(iWin ? 'd' : 'a');
     if (d.tgt.av) d.tgt.av.bout = bout;
     p.duel = null;
     p.bout = bout;
@@ -473,37 +552,93 @@ export class Sim {
     return bout;
   }
 
+  // The big button during the struggle of a technique: one press tightens or resists.
+  mash() {
+    const b = this.p.bout;
+    if (!b || !b.open || this.t - (this._mashAt == null ? -1 : this._mashAt) < 0.03) return false;
+    this._mashAt = this.t;
+    const r = b.iWin ? 'a' : 'd';
+    if (b.m[r] < 99) b.m[r]++;
+    return true;
+  }
+
+  _mashView() {
+    if (!this.h.mash) return;
+    const b = this.p.bout;
+    const on = !!b && b.open;
+    const left = on ? clamp((TECH.judge - b.t) / (TECH.judge - TECH.move), 0, 1) : 0;
+    const key = on ? `${b.id}|${b.m.a}|${b.m.d}|${Math.ceil(left * 10)}` : '';
+    if (key === this._mashKey) return;
+    this._mashKey = key;
+    this.h.mash(on ? { role: b.iWin ? 'a' : 'd', a: b.m.a, d: b.m.d, left, margin: MARGIN } : null);
+  }
+
   _stepBouts(dt) {
     const p = this.p;
+    const say = (n) => { if (this.h.sfx) this.h.sfx(n); };
     for (let i = this.bouts.length - 1; i >= 0; i--) {
       const b = this.bouts[i];
       const before = b.t;
+      if (b.mine && !b.done) {
+        // the other side's presses: a person's arrive with their state, an NPC's are paced here
+        const their = b.iWin ? 'd' : 'a';
+        const bt = b.tgt.av && b.tgt.av.bt && b.tgt.av.bt.id === b.id ? b.tgt.av.bt : null;
+        if (bt) {
+          if (bt.m > b.m[their]) b.m[their] = bt.m;
+          if (bt.e && !b.judge) b.settle(bt.e);
+        }
+        if (b.npcM != null) b.m[their] = Math.round(b.npcM * clamp((b.t - TECH.move) / (TECH.judge - TECH.move), 0, 1));
+      }
       if (b.cancel) b.finish();
       else b.update(dt);
-      if (b.mine) {
-        if (before < TECH.down && b.t >= TECH.down && this.h.sfx) this.h.sfx('thud');
-        if (before < TECH.tap && b.t >= TECH.tap) {
-          this.toast(`탭! ${b.names[0]}의 ${KINDS[b.kind]} 성공`, 3200);
-          if (this.h.sfx) this.h.sfx('tap');
+      const crossed = (at) => before < at && b.t >= at;
+      const near = b.mine || Math.hypot(b.ox - p.x, b.oz - p.z) < 8;
+      if (b.mine && !b.skip) {
+        if (crossed(GREET.slap)) say('slap');
+        if (crossed(GREET.bump)) say('bump');
+      }
+      if (b.mine && crossed(TECH.down)) say('thud');
+      if (crossed(TECH.tap) && near) {
+        const kind = KINDS[b.kind];
+        if (b.outcome === 1) {
+          this.toast(`탈출! ${b.names[1]} 님이 ${kind}에서 빠져나왔습니다`, 3200);
+          if (b.mine) {
+            say('ding');
+            if (this.h.flash) this.h.flash({ text: '탈출!', kind: 'esc' });
+          }
+        } else {
+          if (b.mine) {
+            if (b.iWin) this.streak++;
+            else this.streak = 0;
+            if (this.h.streak) this.h.streak(this.streak);
+            say('tap');
+            if (this.h.flash) this.h.flash({ text: '탭!', kind: 'tap' });
+          }
+          if (this.world.name === 'arena') say('cheer');
+          this.toast(`탭! ${b.names[0]}의 ${kind} 성공${b.mine && b.iWin && this.streak >= 2 ? ` · ${this.streak}연승` : ''}`, 3200);
         }
       }
       if (!b.done) continue;
       this.bouts.splice(i, 1);
-      if (b.t >= TECH.tap) {
-        this.results.unshift({ ox: b.ox, oz: b.oz, text: `${b.names[0]} 승 · ${KINDS[b.kind]}`, until: this.t + 12 });
+      if (b.tapped || b.escaped) {
+        this.results.unshift({ ox: b.ox, oz: b.oz, text: b.tapped ? `${b.names[0]} 승 · ${KINDS[b.kind]}` : `${b.names[1]} 탈출 · ${KINDS[b.kind]}`, until: this.t + 12 });
         if (this.results.length > 8) this.results.length = 8;
       }
       if (b.onDone) b.onDone(b);
       if (b.mine) {
         p.bout = null;
-        if (p.mode === 'bout') p.mode = 'free';
-        this.char.play('loco');
-        if (b.tgt.npc) b.tgt.npc.release();
         if (b.tgt.av && b.tgt.av.bout === b) b.tgt.av.bout = null;
-        this._cool = 1.5;
+        if (b.match && p.duel === b.match) this._subDone(b); // a finish inside a points match: the match goes on or ends
+        else {
+          if (p.mode === 'bout') p.mode = 'free';
+          this.char.play('loco');
+          if (b.tgt.npc) b.tgt.npc.release();
+          this._cool = 1.5;
+        }
       }
     }
     while (this.results.length && this.results[this.results.length - 1].until < this.t) this.results.pop();
+    this._mashView();
   }
 
   // What the network layer publishes about this player.
@@ -511,12 +646,26 @@ export class Sim {
     const p = this.p;
     const d = p.duel;
     const b = p.bout;
-    const anim = p.mode === 'sit' ? 'sit' : p.mode === 'seated' ? 'chair' : p.mode === 'action' ? p.act : p.mode === 'duel' ? 'stance' : p.mode === 'bout' ? 'tech' : 'loco';
+    const anim = p.mode === 'sit' ? 'sit' : p.mode === 'seated' ? 'chair' : p.mode === 'action' ? p.act : p.mode === 'duel' ? p.pose || 'stance' : p.mode === 'bout' ? 'tech' : p.mode === 'race' ? 'shrimpf' : 'loco';
+    const M = d && d.kind === 'match' ? d.M : null;
+    const r = p.race;
+    const out = p.raceOut && p.raceOut.until > this.t ? p.raceOut : null;
     const who = (tg) => (tg.av ? tg.av.id : `n${tg.npc.id}`);
     return {
       x: p.x, y: p.y, z: p.z, yaw: p.yaw, anim, actN: p.actN, seat: p.mode === 'seated' && p.seat ? p.seat.id || '' : '', medal: p.medal,
-      du: d ? { id: d.id, w: who(d.tgt), k: d.kind, r: d.round, p: d.pick, c: d.mine ? 1 : 0, ox: d.ox, oz: d.oz, yw: d.yaw } : null,
-      bt: b ? { id: b.id, w: who(b.tgt), k: b.kind, r: b.iWin ? 'a' : 'd', ox: b.ox, oz: b.oz, yw: b.yaw } : null,
+      say: p.say && p.say.until > this.t ? p.say.n * 8 + p.say.i + 1 : 0,
+      du: d ? Object.assign(
+        { id: d.id, w: who(d.tgt), k: d.kind, r: d.round, p: d.pick, c: d.mine ? 1 : 0, ox: d.ox, oz: d.oz, yw: d.yaw },
+        // a points match also tells the score, the clock and, from the challenger, how it ended
+        M ? { sa: M.sc.A, sb: M.sc.B, tl: Math.ceil(M.left), e: M.end, ps: posCode(M) } : null,
+      ) : null,
+      // a shrimp race: f is 0 while racing, the time in hundredths once finished
+      race: r && r.phase !== 'done' ? { id: r.id, f: 0 } : out ? { id: out.id, f: out.f } : null,
+      photo: p.photo && p.photo.until > this.t ? p.photo.n : 0,
+      // m: my presses in the struggle; e: how it ended (1 escape, 2 tap), told only by the side that decides
+      // s: started on the ground, from the mount of a points match
+      bt: b ? { id: b.id, w: who(b.tgt), k: b.kind, r: b.iWin ? 'a' : 'd', ox: b.ox, oz: b.oz, yw: b.yaw, m: b.m[b.iWin ? 'a' : 'd'], e: b.judge ? b.outcome : 0, s: b.ground ? 1 : null } : null,
+      streak: this.streak,
     };
   }
 
@@ -593,6 +742,13 @@ export class Sim {
     if (this._prompt && this._prompt.action) this._prompt.action(this.api);
   }
 
+  // A group photo is about to be taken here: the others in the place are told, so they can pose.
+  photoCall() {
+    const p = this.p;
+    p.photoN = (p.photoN || 0) + 1;
+    p.photo = { n: p.photoN, until: this.t + 5 };
+  }
+
   // inp: { mx, my, run, camYaw } with mx/my in camera space (-1..1)
   step(dt, inp) {
     const p = this.p;
@@ -630,6 +786,7 @@ export class Sim {
       speed = sp;
     }
     if (p.mode === 'action') this._stepAction(dt, mag);
+    if (p.mode === 'race') this._stepRace(dt, mag);
     if (p.mode === 'duel') this._stepDuel(dt);
     this._stepBouts(dt);
 
@@ -678,3 +835,5 @@ export class Sim {
     for (let i = 0; i < w.tickers.length; i++) w.tickers[i](dt, this.t);
   }
 }
+
+Object.assign(Sim.prototype, MatchMixin, RaceMixin);

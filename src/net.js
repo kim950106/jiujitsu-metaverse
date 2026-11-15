@@ -3,13 +3,18 @@
 // shared with whoever has the page open right now. On the claude.ai page that goes through the
 // platform's realtime room; on a copy hosted elsewhere it goes through public relays (relay.js).
 // Nothing here is trusted: every field that arrives is checked before it is used.
-import { Character } from './character.js';
-import { Bout } from './tech.js';
-import { BELTS, GIS, clamp, turnToward } from './util.js';
+import { Character, TECH } from './character.js';
+import { Bout, isKind, SAYS } from './tech.js';
+import { layout, posFrom } from './match.js';
+import { BELTS, GIS, clamp, turnToward, cleanName } from './util.js';
 import { relayRoom, hostKind } from './relay.js';
 
 const SEND_EVERY = 0.1; // seconds between presence updates
-const ANIMS = new Set(['loco', 'sit', 'chair', 'bow', 'shrimp', 'roll', 'stance', 'tech']);
+const ANIMS = new Set([
+  'loco', 'sit', 'chair', 'bow', 'shrimp', 'roll', 'stance', 'tech', 'shaka', 'bridge', 'standup', 'shrimpf',
+  'guardTop', 'guardBottom', 'sideTop', 'sideBottom', 'mountTop', 'mountBottom', 'win',
+]);
+const DRILLS = new Set(['roll', 'shrimp', 'bridge', 'standup', 'shrimpf']); // in the middle of one, nobody is a partner
 const r2 = (v) => Math.round(v * 100) / 100;
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : '');
@@ -18,25 +23,33 @@ export const mockWanted = () => {
   try { return /[?&]mock=1/.test(location.search); } catch (e) { return false; }
 };
 
-export function cleanName(s) {
-  if (typeof s !== 'string') return '';
-  return s.replace(/[\u0000-\u001f\u007f​-‏‪-‮⁠-⁯﻿]/g, '').trim().slice(0, 12);
-}
+export { cleanName };
 
 function cleanLink(d, bout) {
   if (!d || typeof d !== 'object') return null;
   const id = str(d.id, 64);
   const w = str(d.w, 64);
-  if (!id || !w || (d.k !== 'ankle' && d.k !== 'arm')) return null;
+  // a duel is over a technique or, as 'match', the start of a points match; a bout is always a technique
+  if (!id || !w || !(isKind(d.k) || (!bout && d.k === 'match'))) return null;
   if (!num(d.ox) || !num(d.oz) || !num(d.yw)) return null;
   const o = { id, w, k: d.k, ox: clamp(d.ox, -60, 60), oz: clamp(d.oz, -60, 60), yw: d.yw };
   if (bout) {
     if (d.r !== 'a' && d.r !== 'd') return null;
     o.r = d.r;
+    o.m = num(d.m) ? clamp(d.m | 0, 0, 99) : 0;
+    o.e = d.e === 1 || d.e === 2 ? d.e : 0;
+    o.s = d.s === 1 ? 1 : 0;
   } else {
     o.r = num(d.r) ? clamp(d.r | 0, 1, 99) : 1;
     o.p = d.p === 's' || d.p === 'r' || d.p === 'p' ? d.p : null;
     o.c = d.c === 1 ? 1 : 0;
+    if (d.k === 'match') {
+      o.sa = num(d.sa) ? clamp(d.sa | 0, 0, 999) : 0;
+      o.sb = num(d.sb) ? clamp(d.sb | 0, 0, 999) : 0;
+      o.tl = num(d.tl) ? clamp(d.tl | 0, 0, 999) : 0;
+      o.e = d.e === 1 || d.e === 2 || d.e === 3 ? d.e : 0;
+      o.ps = num(d.ps) ? clamp(d.ps | 0, 0, 6) : 0;
+    }
   }
   return o;
 }
@@ -51,7 +64,8 @@ function clean(pr) {
     stripes: num(pr.s) ? clamp(pr.s | 0, 0, 4) : 0,
     gi: GIS[pr.g] ? pr.g : 'white',
     pl,
-    x: 0, y: 0, z: 0, yaw: 0, anim: 'loco', actN: 0, seat: '', medal: 0, du: null, bt: null,
+    x: 0, y: 0, z: 0, yaw: 0, anim: 'loco', actN: 0, seat: '', medal: 0, du: null, bt: null, say: 0, race: null, photo: 0,
+    streak: num(pr.k) ? clamp(pr.k | 0, 0, 99) : 0,
   };
   if (!pl) return st;
   if (!num(pr.x) || !num(pr.z)) return null;
@@ -63,8 +77,12 @@ function clean(pr) {
   st.actN = num(pr.i) ? pr.i | 0 : 0;
   st.seat = str(pr.st, 24);
   st.medal = num(pr.md) ? clamp(pr.md | 0, 0, 3) : 0;
+  st.say = num(pr.sy) ? clamp(pr.sy | 0, 0, 1e7) : 0;
   st.du = cleanLink(pr.du, false);
   st.bt = cleanLink(pr.bt, true);
+  const rc = pr.rc;
+  st.race = rc && typeof rc === 'object' && str(rc.id, 64) && num(rc.f) ? { id: rc.id, f: clamp(rc.f | 0, 0, 60000) } : null;
+  st.photo = num(pr.ph) ? clamp(pr.ph | 0, 0, 1e6) : 0;
   return st;
 }
 
@@ -83,6 +101,8 @@ class Avatar {
     this.name = '';
     this.look = '';
     this.bout = null;
+    this.ctl = null; // { x, z, yaw, anim } while a points match on this screen places the body itself
+    this.ctlAnim = '';
     this.gone = false;
     scene.add(this.char.root);
     this.apply(st);
@@ -100,16 +120,30 @@ class Avatar {
     }
     if (st.name !== this.name) {
       this.name = st.name;
-      this.char.setLabel(st.name);
       this.char.drawPatch(null, st.name);
     }
+    // a run of wins is shown beside the name
+    const label = st.streak >= 2 ? `${st.name} · ${st.streak}연승` : st.name;
+    if (label !== this.labelText) {
+      this.labelText = label;
+      this.char.setLabel(label);
+    }
     this.char.setMedal(st.medal);
+    if (st.say !== this.said) {
+      this.said = st.say;
+      const line = st.say ? SAYS[(st.say % 8) - 1] : null;
+      if (line) this.char.say(line, 4);
+    }
     this.seat = st.seat;
     this.du = st.du;
     this.bt = st.bt;
-    if (!this.bout && (st.anim !== this.anim || st.actN !== this.actN)) {
+    this.race = st.race;
+    if (!this.bout && !this.ctl && (st.anim !== this.anim || st.actN !== this.actN)) {
       const act = st.anim === 'tech' ? 'stance' : st.anim;
-      if (act !== this.anim || st.actN !== this.actN) this.char.play(act);
+      if (act !== this.anim || st.actN !== this.actN) {
+        this.char.play(act);
+        if (act === 'shaka') this.char.say('🤙', 1.7);
+      }
       this.anim = st.anim;
       this.actN = st.actN;
     }
@@ -117,7 +151,7 @@ class Avatar {
 
   // Not available as a partner: already in a duel or technique, seated, or in the middle of a drill.
   get busy() {
-    return !!(this.du || this.bt || this.bout) || this.anim === 'chair' || this.anim === 'roll' || this.anim === 'shrimp' || this.anim === 'tech';
+    return !!(this.du || this.bt || this.bout) || this.anim === 'chair' || this.anim === 'tech' || DRILLS.has(this.anim);
   }
 
   update(dt) {
@@ -126,7 +160,27 @@ class Avatar {
       this.bout = null;
       this.anim = '';
     }
-    if (!this.bout) {
+    if (this.ctl && !this.bout) {
+      const c = this.ctl;
+      const k = 1 - Math.exp(-11 * dt);
+      this.x += (c.x - this.x) * k;
+      this.z += (c.z - this.z) * k;
+      this.y += (st.y - this.y) * k;
+      this.yaw = turnToward(this.yaw, c.yaw, 9 * dt);
+      this.speed = 0;
+      this.char.rate = 9;
+      if (this.ctlAnim !== c.anim) {
+        this.ctlAnim = c.anim;
+        this.char.play(c.anim);
+      }
+    } else if (!this.bout) {
+      if (this.ctlAnim) {
+        // let go by the match: back to what its owner sends
+        this.ctlAnim = '';
+        this.char.rate = 20;
+        this.anim = '';
+        this.apply(st);
+      }
       const k = 1 - Math.exp(-11 * dt);
       const px = this.x;
       const pz = this.z;
@@ -145,7 +199,7 @@ class Avatar {
     }
     this.char.root.position.set(this.x, this.y, this.z);
     this.char.root.rotation.y = this.yaw;
-    this.char.update(dt, this.anim === 'loco' && !this.bout ? this.speed : 0);
+    this.char.update(dt, this.anim === 'loco' && !this.bout && !this.ctl ? this.speed : 0);
   }
 
   dispose() {
@@ -224,6 +278,7 @@ export class Net {
     this.acc = 0;
     this.last = '';
     this.shown = new Set(); // techniques already played here, so a lingering notice does not replay one
+    this.held = new Map(); // NPC -> { av, du }: held here in somebody else's points match
     this.state = 'off'; // off: no room for this visitor; wait: connecting; on: connected
     this.mode = 'off'; // claude: platform room; relay: public relays; mock: test stand-in
     this.host = 'claude';
@@ -258,6 +313,7 @@ export class Net {
       if (room) mode = 'relay';
     }
     this.mode = mode;
+    if (mode === 'relay' && this.g.guest) this.g.guest.attach(room); // the guestbook rides on the same relays
     if (!room) {
       this._state('off');
       this._people();
@@ -296,6 +352,11 @@ export class Net {
     for (const av of this.avatars.values()) av.dispose();
     this.avatars.clear();
     this.list = [];
+    for (const npc of this.held.keys()) {
+      npc.char.rate = 20;
+      npc.release();
+    }
+    this.held.clear();
   }
 
   // Called when the player walks into a place or goes back to the start screen ('').
@@ -336,6 +397,11 @@ export class Net {
         this.avatars.set(id, av);
         this._hello(st.name);
       } else av.apply(st);
+      // someone here is about to take a group photo
+      if (st.photo && st.photo !== av.photoN) {
+        av.photoN = st.photo;
+        if (this.h.photo) this.h.photo(st.name);
+      }
     }
     for (const [id, av] of this.avatars) {
       if (!seen.has(id)) {
@@ -369,7 +435,7 @@ export class Net {
   _publish() {
     const sim = this.sim;
     const sel = sim.sel;
-    const o = { v: 1, n: cleanName(sel.name), b: sel.belt, s: sel.stripes, g: sel.gi, pl: this.place };
+    const o = { v: 1, n: cleanName(sel.name), b: sel.belt, s: sel.stripes, g: sel.gi, pl: this.place, k: sim.streak >= 2 ? Math.min(sim.streak, 99) : null };
     if (this.place && sim.world) {
       const s = sim.netState();
       o.x = r2(s.x);
@@ -380,6 +446,9 @@ export class Net {
       o.i = s.actN;
       o.st = s.seat || null;
       o.md = s.medal || null;
+      o.sy = s.say || null;
+      o.rc = s.race || null;
+      o.ph = s.photo || null;
       o.du = s.du ? Object.assign({}, s.du, { ox: r2(s.du.ox), oz: r2(s.du.oz), yw: r2(s.du.yw) }) : null;
       o.bt = s.bt ? Object.assign({}, s.bt, { ox: r2(s.bt.ox), oz: r2(s.bt.oz), yw: r2(s.bt.yw) }) : null;
     } else {
@@ -391,6 +460,9 @@ export class Net {
       o.i = null;
       o.st = null;
       o.md = null;
+      o.sy = null;
+      o.rc = null;
+      o.ph = null;
       o.du = null;
       o.bt = null;
     }
@@ -412,7 +484,8 @@ export class Net {
     let npc = null;
     if (bt.w[0] === 'n') {
       npc = sim.world.npcs[parseInt(bt.w.slice(1), 10)];
-      if (!npc || npc.busy || npc.ctrl) return;
+      const h = npc ? this.held.get(npc) : null;
+      if (!npc || npc.ctrl || (npc.busy && !(h && h.av === av.id))) return;
       other = npc;
     } else {
       other = this.avatars.get(bt.w);
@@ -420,15 +493,54 @@ export class Net {
     }
     const atk = bt.r === 'a' ? av : other;
     const def = bt.r === 'a' ? other : av;
-    const bout = new Bout({ id: bt.id, kind: bt.k, atk, def, ox: bt.ox, oz: bt.oz, yaw: bt.yw, names: [atk.name, def.name] });
+    const bout = new Bout({ id: bt.id, kind: bt.k, atk, def, ox: bt.ox, oz: bt.oz, yaw: bt.yw, names: [atk.name, def.name], t: bt.s ? TECH.down : 0 });
     this.shown.add(bt.id);
     av.bout = bout;
+    av.ctlAnim = '';
     if (npc) {
       npc.busy = true;
       npc.back = false;
-      bout.onDone = () => npc.release();
+      npc.anim = ''; // the technique poses it now
+      bout.onDone = () => { if (!this.held.has(npc)) npc.release(); };
     } else other.bout = bout;
     sim.addBout(bout);
+  }
+
+  // Somebody else's points match against an NPC: put that NPC where the position says, here too.
+  _holdNpc(av, dt) {
+    const du = av.du;
+    const sim = this.sim;
+    const npc = sim.world.npcs[parseInt(du.w.slice(1), 10)];
+    if (!npc || npc.ctrl || !npc.spar) return;
+    const h = this.held.get(npc);
+    if (!h) {
+      if (npc.busy) return; // already in something on this screen
+      npc.busy = true;
+      npc.back = false;
+      this.held.set(npc, { av: av.id, du: du.id });
+    } else if (h.av !== av.id) return;
+    else h.du = du.id;
+    if (av.bout && !av.bout.done) return; // a finish is being tried: the technique moves both
+    const M = Object.assign(posFrom(du.ps), { end: du.e });
+    const o = layout(M, du.e ? 'end' : 'pick', 0).B; // the NPC is always the challenged side
+    const ux = Math.sin(du.yw);
+    const uz = Math.cos(du.yw);
+    npc.slideTo(du.ox + ux * o.u + uz * o.s, du.oz + uz * o.u - ux * o.s, 2.6, dt);
+    npc.yaw = turnToward(npc.yaw, du.yw + Math.PI + o.turn, 7 * dt);
+    npc.char.rate = 9;
+    npc.setAnim(o.anim);
+  }
+
+  // Let the NPCs go whose match is over (or whose opponent left).
+  _letGo() {
+    for (const [npc, h] of this.held) {
+      const av = this.avatars.get(h.av);
+      if (av && av.du && av.du.id === h.du) continue;
+      if (av && av.bout && !av.bout.done) continue;
+      this.held.delete(npc);
+      npc.char.rate = 20;
+      npc.release();
+    }
   }
 
   tick(dt) {
@@ -455,7 +567,12 @@ export class Net {
     for (const av of this.list) {
       if (av.du && av.du.c === 1 && av.du.w === sim.myPeer && !sim.busy) sim.acceptDuel(av, av.du);
       if (av.bt) this._watch(av);
+      if (av.du && av.du.k === 'match' && av.du.c === 1 && av.du.w[0] === 'n') this._holdNpc(av, dt);
+      if (av.race) sim.seeRace(av);
+      // a technique between two others: how its struggle ended, from whichever of them decides
+      if (av.bout && !av.bout.mine && av.bt && av.bt.id === av.bout.id && av.bt.e) av.bout.settle(av.bt.e);
       av.update(dt);
     }
+    if (this.held.size) this._letGo();
   }
 }

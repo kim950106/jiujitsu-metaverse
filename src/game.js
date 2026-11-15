@@ -1,15 +1,31 @@
 /* global THREE, window, document, performance, requestAnimationFrame */
 // Rendering, camera and input. All game rules live in sim.js; maps live in gym.js and arena.js;
 // other people arrive through net.js.
-import { clamp } from './util.js';
+import { clamp, angDiff, fitText } from './util.js';
 import { Sim } from './sim.js';
 import { Net } from './net.js';
 import { buildGym } from './gym.js';
 import { buildArena } from './arena.js';
 import { Sound } from './audio.js';
+import { isKind, SLOW } from './tech.js';
+import { point } from './stage.js';
+import { Guestbook, browserStore } from './guest.js';
+import { roomCode } from './relay.js';
 
 const SCALES = [1, 0.85, 0.72, 0.6]; // steps the drawing resolution can fall back through on slow devices
 const FAR = 26; // beyond this distance characters drop their small parts
+// Where a technique reads best from: camera directions measured from the way the attacker faces
+// (a quarter turn to the left is the attacker's left side), and how far the camera looks down.
+// The camera drifts to the nearest of these that has room behind it, unless the player takes over.
+const VIEWS = {
+  ankle: { yaw: [Math.PI / 2, -Math.PI / 2], pitch: 0.34 }, // from either side
+  arm: { yaw: [Math.PI, 0], pitch: 0.52 }, // along the defender's body, looking down a little: the two make a T
+  guil: { yaw: [-Math.PI / 2, 0], pitch: 0.3 }, // the side the head is not on, or facing the attacker
+  omo: { yaw: [-Math.PI / 2, Math.PI], pitch: 0.36 }, // the defender's side, the attacker sitting up behind
+  rnc: { yaw: [0.3, -0.3], pitch: 0.3 }, // from the front: both faces, the arm under the chin
+  tri: { yaw: [Math.PI / 2, -Math.PI / 2], pitch: 0.3 },
+  kim: { yaw: [-Math.PI / 2, Math.PI], pitch: 0.44 }, // the side the bent arm is on
+};
 
 export class Game {
   constructor(canvas, hooks) {
@@ -19,6 +35,8 @@ export class Game {
     this.ok = false;
     this.world = null;
     this.sound = new Sound();
+    this.guest = new Guestbook(browserStore(), roomCode() || 'main');
+    this.guest.onChange(() => { if (this.world && this.world.onBoard) this.world.onBoard(); });
     this.logos = { gym: null, event: null };
     this.keys = Object.create(null);
     this.stick = { x: 0, y: 0, on: false };
@@ -27,6 +45,7 @@ export class Game {
     this.spin = 0; // camera turn buttons held: -1 left, 1 right
     this.drag = { id: null, x: 0 };
     this.cam = { yaw: 0, pitch: 0.3, dist: 4.6, tgt: new THREE.Vector3() };
+    this.view = { id: null, auto: false, off: null }; // the camera's own choice of angle for the technique in progress
     this.prevYaw = 0.15;
     this.prevT = 0;
     this.frame = 0;
@@ -61,6 +80,12 @@ export class Game {
         this.cam.dist = dist;
       },
       openBelt: () => hooks.openBelt(),
+      board: () => this.guest.list(),
+      mash: (m) => hooks.mash && hooks.mash(m),
+      flash: (f) => hooks.flash && hooks.flash(f),
+      streak: (n) => hooks.streak && hooks.streak(n),
+      race: (r) => hooks.race && hooks.race(r),
+      raceDone: (t) => (hooks.raceDone ? hooks.raceDone(t) : null),
     });
     if (this.sim.char.blob) this.sim.char.blob.visible = !this.renderer.shadowMap.enabled;
     this.net = new Net(this, {
@@ -68,6 +93,7 @@ export class Game {
       people: (p) => hooks.people(p),
       joined: (name) => hooks.joined && hooks.joined(name),
       company: (k) => hooks.company && hooks.company(k),
+      photo: (name) => hooks.photo && hooks.photo(name),
     });
     this._buildPreview();
     this._bindInput();
@@ -133,13 +159,34 @@ export class Game {
         this.camera.setViewOffset(w, hgt, w / 2 - (w - pw) * 0.63, 0, w, hgt);
       }
     } else {
-      // Upright phones: lift the picture a little so the character clears the buttons.
-      if (hgt > w * 1.2) this.camera.setViewOffset(w, hgt, 0, Math.round(hgt * 0.09), w, hgt);
-      else this.camera.clearViewOffset();
       // A phone held sideways is short: widen the view a little so the room does not feel cropped.
       this.camera.fov = hgt < 460 && w > hgt ? 62 : 55;
+      this.vw = w;
+      this.vh = hgt;
+      this.liftNow = null;
+      this._lift(0);
     }
     this.camera.updateProjectionMatrix();
+    // Changing the size wipes the picture. Draw it again at once, so that a change of resolution
+    // or a turn of the screen never shows an empty frame.
+    if (this.mode === 'start') {
+      if (this.preview) this.renderer.render(this.preview, this.camera);
+    } else if (this.world) this.renderer.render(this.world.scene, this.camera);
+  }
+
+  // How far the picture is lifted, as a part of its height: a little on an upright phone, so that
+  // the character clears the buttons, and more during a points match, so that the two bodies stay
+  // in view above the strip with the hands.
+  _lift(dt) {
+    const d = this.sim.p.duel;
+    const match = this.mode === 'play' && !!d && d.kind === 'match' && d.phase !== 'wait';
+    const want = (this.vh > this.vw * 1.2 ? 0.09 : 0) + (match ? (this.vh < 480 ? 0.18 : 0.06) : 0);
+    let v = this.liftNow == null ? want : this.liftNow + (want - this.liftNow) * (1 - Math.exp(-5 * dt));
+    if (Math.abs(v - want) < 0.002) v = want;
+    if (v === this.liftNow) return;
+    this.liftNow = v;
+    if (v > 0) this.camera.setViewOffset(this.vw, this.vh, 0, Math.round(this.vh * v), this.vw, this.vh);
+    else this.camera.clearViewOffset();
   }
 
   _bindInput() {
@@ -157,9 +204,17 @@ export class Game {
         else if (e.code === 'Escape') this.sim.cancelDuel();
         return;
       }
-      const acts = { Digit1: 'bow', Digit2: 'sit', Digit3: 'shrimp', Digit4: 'roll', KeyQ: 'ankle', KeyR: 'arm' };
+      const acts = {
+        Digit1: 'bow', Digit2: 'sit', Digit3: 'shrimp', Digit4: 'roll',
+        Digit5: 'ankle', Digit6: 'arm', Digit7: 'guil', Digit8: 'omo', Digit9: 'rnc',
+        KeyQ: 'ankle', KeyR: 'arm', KeyT: 'guil', KeyF: 'omo', KeyG: 'rnc', KeyY: 'tri', KeyH: 'kim', KeyM: 'match',
+        KeyB: 'bridge', KeyN: 'standup', KeyV: 'shaka',
+      };
+      const says = { KeyZ: 0, KeyX: 1, KeyC: 2 };
       if (acts[e.code]) this.act(acts[e.code]);
-      else if (e.code === 'KeyE' || e.code === 'Enter') this.main();
+      else if (says[e.code] != null) this.say(says[e.code]);
+      else if (e.code === 'KeyE' || e.code === 'Enter' || e.code === 'Space') this.main();
+      else if (e.code === 'KeyP') { if (this.h.shoot) this.h.shoot(); }
       else if (e.code === 'Escape') this.h.menu();
     });
     window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
@@ -176,28 +231,32 @@ export class Game {
     cv.addEventListener('contextmenu', (e) => e.preventDefault());
     cv.addEventListener('pointerdown', (e) => {
       try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      // positions are read in the stage's frame, which may be turned on its side (stage.js)
+      const p = point(e);
       if (this.mode === 'start') {
         this.drag.id = e.pointerId;
-        this.drag.x = e.clientX;
+        this.drag.x = p.x;
         return;
       }
-      if (this.touches.size < 2) this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.touches.size < 2) this.touches.set(e.pointerId, p);
       this.pinch = 0;
     });
     cv.addEventListener('pointermove', (e) => {
+      const p = point(e);
       if (e.pointerId === this.drag.id) {
-        this.prevYaw += (e.clientX - this.drag.x) * 0.012;
-        this.drag.x = e.clientX;
+        this.prevYaw += (p.x - this.drag.x) * 0.012;
+        this.drag.x = p.x;
         return;
       }
       const t = this.touches.get(e.pointerId);
       if (!t) return;
       if (this.touches.size === 1) {
-        this.cam.yaw -= (e.clientX - t.x) * 0.006;
-        this.cam.pitch = clamp(this.cam.pitch + (e.clientY - t.y) * 0.004, -0.08, 1.25);
+        this.view.auto = false; // the player is choosing the angle now
+        this.cam.yaw -= (p.x - t.x) * 0.006;
+        this.cam.pitch = clamp(this.cam.pitch + (p.y - t.y) * 0.004, -0.35, 1.25);
       }
-      t.x = e.clientX;
-      t.y = e.clientY;
+      t.x = p.x;
+      t.y = p.y;
       if (this.touches.size === 2) {
         const [a, b] = Array.from(this.touches.values());
         const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -229,13 +288,63 @@ export class Game {
   // Any action button or key.
   act(name) {
     if (this.mode !== 'play') return;
-    if (name === 'ankle' || name === 'arm') this.sim.challenge(name);
+    if (isKind(name) || name === 'match') this.sim.challenge(name);
     else this.sim.doAction(name);
+  }
+
+  // The picture on the screen right now, without the buttons, with a caption strip along the
+  // bottom. Returns a canvas, or null where there is nothing to take.
+  snap(left, right) {
+    if (!this.ok || !this.world || this.mode !== 'play') return null;
+    // A phone that has been turned down to a coarse picture to keep its frame rate still gets a
+    // sharp photo: this one frame is drawn about 1600 pixels wide.
+    const r = this.renderer;
+    const was = r.getPixelRatio();
+    const size = r.getSize(new THREE.Vector2());
+    const want = Math.min(3, Math.max(1, 1600 / Math.max(1, size.x, size.y)));
+    if (want > was) r.setPixelRatio(want);
+    r.render(this.world.scene, this.camera);
+    const src = r.domElement;
+    const cv = document.createElement('canvas');
+    const W = src.width;
+    const H = src.height;
+    cv.width = W;
+    cv.height = H;
+    const c = cv.getContext('2d');
+    c.drawImage(src, 0, 0); // must follow the render at once: the drawing buffer is not kept
+    const bar = Math.max(30, Math.round(H * 0.075));
+    c.fillStyle = 'rgba(15,17,20,.84)';
+    c.fillRect(0, H - bar, W, bar);
+    c.fillStyle = '#ffd79a';
+    c.fillRect(0, H - bar, W, Math.max(2, Math.round(bar * 0.07)));
+    c.textBaseline = 'middle';
+    c.textAlign = 'left';
+    c.fillStyle = '#f1efe9';
+    fitText(c, left, bar * 0.45, H - bar / 2 + 2, W * 0.56, Math.round(bar * 0.46), 700);
+    c.textAlign = 'right';
+    c.fillStyle = '#ffd79a';
+    fitText(c, right, W - bar * 0.45, H - bar / 2 + 2, W * 0.36, Math.round(bar * 0.4), 700);
+    if (want > was) r.setPixelRatio(was);
+    return cv;
+  }
+
+  // One of the quick phrases.
+  say(i) {
+    if (this.mode === 'play') this.sim.say(i);
   }
 
   // The big button: whatever can be used right here, otherwise a bow.
   main() {
-    if (this.mode !== 'play' || this.sim.busy) return;
+    if (this.mode !== 'play') return;
+    if (this.sim.p.bout) {
+      this.sim.mash(); // during a technique it is the button to hammer
+      return;
+    }
+    if (this.sim.p.race) {
+      this.sim.stroke(); // and in a shrimp race, every press is one shrimp
+      return;
+    }
+    if (this.sim.busy) return;
     if (this.sim._prompt) {
       this.sim.usePrompt();
       this.h.prompt(this.sim._prompt);
@@ -336,38 +445,125 @@ export class Game {
     const p = this.sim.p;
     const c = this.cam;
     const lim = this.world.cam;
-    if (this.spin) c.yaw += this.spin * 1.9 * dt;
+    this._lift(dt);
+    if (this.spin) {
+      c.yaw += this.spin * 1.9 * dt;
+      this.view.auto = false;
+    }
     // During a duel or a technique, look at the middle of the pair and stand back far enough to
     // keep both in frame, which on an upright phone is further than usual.
     const pair = p.bout || p.duel;
+    const bout = p.bout && !p.bout.done ? p.bout : null;
     const ty = p.y + (p.mode === 'seated' ? 1.1 : p.mode === 'sit' ? 0.8 : pair ? 0.7 : 1.05);
     const k = 1 - Math.exp(-12 * dt);
     c.tgt.x += ((pair ? pair.ox : p.x) - c.tgt.x) * k;
     c.tgt.y += (ty - c.tgt.y) * k;
     c.tgt.z += ((pair ? pair.oz : p.z) - c.tgt.z) * k;
     const halfW = Math.tan((this.camera.fov * Math.PI) / 360) * this.camera.aspect;
-    const want = pair ? Math.max(c.dist, Math.min(7.5, 1.2 / halfW)) : c.dist;
+    // at the tap the camera pushes in for as long as the slow motion lasts
+    const tapNow = !!bout && bout.outcome === 2 && bout.t >= bout.T.tap - 0.12 && bout.t < bout.T.tap + SLOW.span + 0.2;
+    c.push = (c.push == null ? 1 : c.push) + ((tapNow ? 0.68 : 1) - (c.push == null ? 1 : c.push)) * (1 - Math.exp(-9 * dt));
+    const want = (pair ? Math.max(c.dist, Math.min(7.5, 1.2 / halfW)) : c.dist) * c.push;
     c.eff = c.eff == null ? want : c.eff + (want - c.eff) * (1 - Math.exp(-6 * dt));
-    // Keep the camera inside the room: flatten the angle under low ceilings, then pull in toward
-    // the player instead of letting the view pass through a wall.
-    const maxY = Math.min(lim.ceil || lim.maxY, Math.max(lim.maxY, p.y + 1.5));
-    let pitch = c.pitch;
-    const room = maxY - c.tgt.y;
-    if (Math.sin(pitch) * c.eff > room) pitch = Math.asin(clamp(room / c.eff, -0.2, 1));
-    const cp = Math.cos(pitch);
-    const dx = Math.sin(c.yaw) * cp;
-    const dy = Math.sin(pitch);
-    const dz = Math.cos(c.yaw) * cp;
-    let d = c.eff;
-    if (dx > 1e-4) d = Math.min(d, (lim.maxX - c.tgt.x) / dx);
-    else if (dx < -1e-4) d = Math.min(d, (lim.minX - c.tgt.x) / dx);
-    if (dz > 1e-4) d = Math.min(d, (lim.maxZ - c.tgt.z) / dz);
-    else if (dz < -1e-4) d = Math.min(d, (lim.minZ - c.tgt.z) / dz);
-    if (dy < -1e-4) d = Math.min(d, (0.3 - c.tgt.y) / dy);
-    d = Math.max(d, 0.7);
-    const x = clamp(c.tgt.x + dx * d, lim.minX, lim.maxX);
-    const y = clamp(c.tgt.y + dy * d, 0.3, maxY);
-    const z = clamp(c.tgt.z + dz * d, lim.minZ, lim.maxZ);
+    // Keep the camera where it is allowed to be. A map gives one box, or several that together
+    // cover its rooms (cam.boxes): flatten the angle under a low ceiling, then walk outward from
+    // the look-at point and stop where the view would leave every box, so it never passes through
+    // a wall but can look through a doorway.
+    const boxes = lim.boxes || [lim];
+    const inBox = (b, bx, bz) => bx >= b.minX && bx <= b.maxX && bz >= b.minZ && bz <= b.maxZ;
+    // The box the look-at point is in sets the height limit. Among overlapping boxes the tallest
+    // wins; outside all of them, the nearest.
+    let home = null;
+    let gap = Infinity;
+    for (const b of boxes) {
+      const ox = c.tgt.x - clamp(c.tgt.x, b.minX, b.maxX);
+      const oz = c.tgt.z - clamp(c.tgt.z, b.minZ, b.maxZ);
+      const far = ox * ox + oz * oz;
+      if (far < gap - 1e-9 || (far < gap + 1e-9 && home && b.maxY > home.maxY)) {
+        gap = far;
+        home = b;
+      }
+    }
+    const lid = Math.min(home.ceil || home.maxY, Math.max(home.maxY, p.y + 1.5));
+    // ease the limit so that stepping through a doorway dips the view instead of snapping it
+    c.lid = c.lid == null || c.lidOf !== this.world ? lid : c.lid + (lid - c.lid) * (1 - Math.exp(-9 * dt));
+    c.lidOf = this.world;
+    const maxY = c.lid;
+    const sx = clamp(c.tgt.x, home.minX, home.maxX);
+    const sz = clamp(c.tgt.z, home.minZ, home.maxZ);
+    // How far the camera can stand back looking from a given direction, and where that puts it.
+    const probe = (yaw, pitchIn) => {
+      let pitch = pitchIn;
+      const room = maxY - c.tgt.y;
+      if (Math.sin(pitch) * c.eff > room) pitch = Math.asin(clamp(room / c.eff, -0.2, 1));
+      const cp = Math.cos(pitch);
+      const dx = Math.sin(yaw) * cp;
+      const dy = Math.sin(pitch);
+      const dz = Math.cos(yaw) * cp;
+      const free = (t) => {
+        const fx = sx + dx * t;
+        const fy = c.tgt.y + dy * t;
+        const fz = sz + dz * t;
+        for (let i = 0; i < boxes.length; i++) {
+          const b = boxes[i];
+          if (inBox(b, fx, fz) && fy <= (b === home ? Math.max(maxY, lid) : b.ceil || b.maxY) + 1e-3) return true;
+        }
+        return false;
+      };
+      let d = c.eff;
+      if (dy < -1e-4) d = Math.min(d, (0.3 - c.tgt.y) / dy);
+      const STEPS = 16;
+      let clear = 0;
+      let hit = false;
+      for (let i = 1; i <= STEPS; i++) {
+        const t = (d * i) / STEPS;
+        if (!free(t)) {
+          hit = true;
+          break;
+        }
+        clear = t;
+      }
+      if (hit) {
+        let hi = clear + d / STEPS;
+        for (let i = 0; i < 6; i++) {
+          const mid = (clear + hi) / 2;
+          if (free(mid)) clear = mid;
+          else hi = mid;
+        }
+        d = clear;
+      }
+      return { d, dx, dy, dz, free };
+    };
+    // A technique in progress: drift to an angle it reads well from.
+    if (bout) {
+      if (this.view.id !== bout.id) this.view = { id: bout.id, auto: true, off: null };
+      const V = VIEWS[bout.kind] || VIEWS.ankle;
+      if (this.view.auto && bout.t > 0.15) {
+        if (this.view.off == null) {
+          let best = null;
+          for (const off of V.yaw) {
+            const yaw = bout.yaw + off;
+            const d = probe(yaw, V.pitch).d;
+            const score = Math.max(0, c.eff * 0.8 - d) * 4 + Math.abs(angDiff(c.yaw, yaw)) * 0.3;
+            if (!best || score < best.score) best = { off, score };
+          }
+          this.view.off = best.off;
+        }
+        const k2 = 1 - Math.exp(-2.8 * dt);
+        c.yaw += angDiff(c.yaw, bout.yaw + this.view.off) * k2;
+        c.pitch += (V.pitch - c.pitch) * k2;
+      }
+    } else if (this.view.id != null) this.view = { id: null, auto: false, off: null };
+    const pr = probe(c.yaw, c.pitch);
+    const { dx, dy, dz, free } = pr;
+    const d = Math.max(pr.d, 0.7);
+    let x = sx + dx * d;
+    const y = clamp(c.tgt.y + dy * d, 0.3, Math.max(maxY, 0.3));
+    let z = sz + dz * d;
+    if (!free(d)) {
+      x = clamp(x, home.minX, home.maxX);
+      z = clamp(z, home.minZ, home.maxZ);
+    }
     this.camera.position.set(x, y, z);
     this.camera.lookAt(c.tgt);
     const sun = this.world.sun;

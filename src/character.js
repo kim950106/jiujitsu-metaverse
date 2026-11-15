@@ -18,9 +18,19 @@ const SEAT = 0.57; // hip height on a chair
 export const SHRIMP = { cycle: 1.25, a: 0.45, b: 0.8, dist: 0.38, reps: 3 };
 export const ROLL = { dur: 1.15, a: 0.2, b: 0.85, dist: 1.9 };
 export const BOW = { dur: 1.35 };
-// Two-person technique, in seconds from the start: step in and grip, takedown, move to the
-// finishing hold, hold until the tap, let go and stand, bow.
-export const TECH = { clinch: 0.5, down: 1.3, move: 2.3, tap: 3.5, hold: 4.8, up: 5.7, end: 7.05 };
+export const SHAKA = { dur: 1.7 };
+export const BRIDGE = { cycle: 1.15, reps: 3 };
+// Technical stand-up: sit, then between a and b (shares of the whole) rise on one hand and the
+// opposite foot while the other leg swings back, moving `dist` backwards.
+export const STANDUP = { dur: 2.3, a: 0.45, b: 0.82, dist: 0.4 };
+// One stroke of the shrimp race: quicker than the drill, and it carries the body `step` metres.
+export const RACE = { stroke: 0.4, a: 0.3, b: 0.85, step: 0.5 };
+// Two-person technique, in seconds from the start: slap and bump, step in and grip, takedown,
+// move to the finishing hold, the struggle (both sides hammer their button until `judge`), the
+// tap, let go and stand, bow. A technique that is escaped from has its own later moments (Bout.T).
+export const TECH = { greet: 0.9, clinch: 1.4, down: 2.2, move: 3.2, judge: 5.2, tap: 5.8, hold: 7.1, up: 8.0, end: 9.35 };
+// Moments inside the greeting when the palms and then the fists meet.
+export const GREET = { slap: 0.36, bump: 0.7 };
 // The tucked body rolls like an egg: centre of the tuck relative to the hips, and its half-length / half-height.
 const TUCK = { cy: 0.1, cz: 0.375, a: 0.525, b: 0.3 };
 
@@ -30,16 +40,20 @@ const HAIR_M = ['sprout', 'zig', 'part', 'flat'];
 const HAIR_F = ['bun', 'pony', 'tails', 'bob'];
 
 const NEUTRAL = {
-  tiltX: 0, drop: 0, twist: 0, bob: 0, sway: 0, spine: 0, head: 0, headZ: 0,
+  tiltX: 0, drop: 0, twist: 0, bob: 0, sway: 0, spine: 0, head: 0, headZ: 0, headY: 0,
   aLx: 0, aLz: 0.26, aRx: 0, aRz: -0.26, fL: -0.1, fR: -0.1, fLy: 0, fRy: 0,
   lLx: 0, lLz: 0, lRx: 0, lRz: 0, sL: 0, sR: 0,
+  // limb length as a multiple of the real one: short cartoon limbs stretch a little to wrap a hold
+  aLs: 1, aRs: 1, lLs: 1, lRs: 1,
 };
 const KEYS = Object.keys(NEUTRAL);
 
 // Expression shown while a given animation plays; anything else uses the character's own face.
 const ANIM_FACE = {
   stance: 'focus', guardTop: 'focus', guardBottom: 'focus', shrimp: 'focus',
-  roll: 'wow', bow: 'calm', sit: 'calm', stretch: 'grin', coach: 'grin',
+  roll: 'wow', bow: 'calm', sit: 'calm', stretch: 'grin', coach: 'grin', shaka: 'grin',
+  bridge: 'focus', standup: 'focus', shrimpf: 'focus',
+  sideTop: 'focus', sideBottom: 'focus', mountTop: 'focus', mountBottom: 'wow', win: 'grin',
 };
 
 let blobMat = null;
@@ -189,7 +203,348 @@ function art() {
   return ART;
 }
 
+const SIT = 0.125; // hip height sitting on the mat
+const PRONE = 0.15; // hip height lying face down
+const pose = (o) => Object.assign({}, NEUTRAL, o);
+// Both bodies at the grip, just before a technique starts.
+const GRIP = pose({
+  drop: -0.04, spine: 0.3, head: -0.14, lLx: -0.5, sL: 0.6, lRx: 0.18, sR: 0.5, lLz: 0.18, lRz: -0.18,
+  aLx: -1.3, aRx: -1.25, fL: -0.25, fR: -0.3, aLz: 0.12, aRz: -0.12,
+});
+// Techniques that are drawn by blending key poses: the grip, `mid` when the first move lands, and
+// the finishing `hold`, for the attacker (a) and the defender (d). `live` adds the squeeze and the
+// tap on top of the hold: m is how far the hold is set (0..1), pulse swings between -1 and 1 while
+// it is held, tap is 0..1 while the defender taps, h is the time held in seconds.
+const MOVE = {
+  // Standing guillotine. The attacker snaps the head down and wraps it under the left arm, then
+  // leans back; the defender is bent over at the waist and taps the attacker's leg.
+  guil: {
+    a: {
+      mid: pose({
+        drop: -0.06, spine: 0.36, head: 0.12, lLx: -0.45, sL: 0.6, lRx: 0.15, sR: 0.45, lLz: 0.2, lRz: -0.2,
+        aLx: -1.0, aLz: 0.4, fL: -0.9, fLy: -0.6, aRx: -1.15, aRz: -0.1, fR: -0.7,
+      }),
+      hold: pose({
+        tiltX: -0.2, drop: -0.05, spine: -0.1, head: 0.25, lLx: -0.4, sL: 0.5, lRx: 0.1, sR: 0.35, lLz: 0.24, lRz: -0.24,
+        aLx: -0.85, aLz: 0.6, fL: -0.7, fLy: -1.3, aRx: -0.9, aRz: 0.35, fR: -1.4, fRy: 1.2,
+      }),
+      live(P, m, pulse) {
+        P.tiltX -= 0.05 * pulse * m;
+        P.spine -= 0.04 * pulse * m;
+      },
+    },
+    d: {
+      mid: pose({
+        drop: -0.06, spine: 0.8, head: 0.1, lLx: -0.4, sL: 0.6, lRx: 0.05, sR: 0.5, lLz: 0.2, lRz: -0.2,
+        aLx: -1.4, aRx: -1.4, fL: -0.5, fR: -0.5, aLz: 0.3, aRz: -0.3,
+      }),
+      hold: pose({
+        drop: -0.05, spine: 1.05, head: 0.3, lLx: -0.55, sL: 0.75, lRx: -0.1, sR: 0.6, lLz: 0.22, lRz: -0.22,
+        aLx: -1.5, aLz: 0.5, fL: -0.9, fLy: -0.5, aRx: -1.3, aRz: -0.2, fR: -0.6,
+      }),
+      live(P, m, pulse, tap, h) {
+        P.fR = -0.3 - 1.0 * tap;
+        P.sR += 0.12 * Math.sin(h * 6) * m;
+        P.spine += 0.03 * pulse * m;
+      },
+    },
+  },
+  // Rear naked choke. The attacker gets behind, both sit, the attacker's legs hook the waist and
+  // one arm closes under the chin; the defender pulls at the arm and taps with the other hand.
+  rnc: {
+    a: {
+      mid: pose({
+        drop: -0.05, spine: 0.3, headZ: -0.3, sway: -0.08, lLx: -0.4, sL: 0.55, lRx: 0.1, sR: 0.45, lLz: 0.2, lRz: -0.2,
+        aLx: -1.5, aLz: -0.2, fL: -0.9, fLy: -1.3, aLs: 1.5, aRx: -1.0, aRz: -0.3, fR: -1.1, fRy: 0.4,
+      }),
+      hold: pose({
+        tiltX: -0.12, drop: SIT - H, sway: -0.12, spine: 0.15, headZ: -0.4, head: 0.05,
+        lLx: -1.5, lRx: -1.5, lLz: 0.5, lRz: -0.5, sL: 0.25, sR: 0.25, lLs: 1.3, lRs: 1.3,
+        aLx: -1.72, aLz: -0.43, fL: -0.93, fLy: -1.69, aLs: 2, aRx: -0.75, aRz: -0.82, fR: -1.26, fRy: -0.52,
+      }),
+      live(P, m, pulse) {
+        P.tiltX -= 0.04 * pulse * m;
+        P.fL -= 0.08 * pulse * m;
+      },
+    },
+    d: {
+      mid: pose({
+        drop: -0.06, spine: 0.2, head: -0.1, headZ: 0.2, lLx: -0.3, sL: 0.5, lRx: 0.1, sR: 0.4, lLz: 0.18, lRz: -0.18,
+        aLx: -1.0, aRx: -1.0, fL: -1.3, fR: -1.3,
+      }),
+      hold: pose({
+        tiltX: -0.2, drop: SIT - H, spine: 0.1, head: -0.2, headZ: 0.35,
+        lLx: -1.3, lRx: -1.15, sL: 0.45, sR: 0.9, lLz: 0.12, lRz: -0.18,
+        aRx: -0.79, aRz: 0.93, fR: -1.07, fRy: -0.15, aLx: 0.45, aLz: 0.77, fL: -0.91, fLy: 0.19,
+      }),
+      live(P, m, pulse, tap, h) {
+        P.fL = -0.75 - 0.75 * tap;
+        P.lLx += 0.1 * Math.sin(h * 6) * m;
+        P.lRx -= 0.1 * Math.sin(h * 6) * m;
+        P.tiltX -= 0.04 * pulse * m;
+      },
+    },
+  },
+  // Omoplata. The defender is flattened face down; the attacker sits up beside the shoulder with
+  // a leg over it and leans forward; the defender slaps the mat with the free hand.
+  omo: {
+    a: {
+      mid: pose({
+        tiltX: -0.5, drop: SIT + 0.03 - H, spine: 0.3, head: 0.2,
+        lLx: -2.2, lLz: 0.3, sL: 0.9, lLs: 1.3, lRx: -1.6, lRz: -0.4, sR: 1.0,
+        aLx: -1.2, aLz: 0.2, fL: -0.8, aRx: -1.2, aRz: -0.2, fR: -0.8,
+      }),
+      hold: pose({
+        drop: SIT + 0.04 - H, spine: 0.4, head: -0.2,
+        lLx: -0.36, lLz: 2.04, sL: 0.38, lLs: 1.5, lRx: -1.73, lRz: 0.02, sR: 1.3,
+        aLx: 0.8, aLz: 0.27, fL: -0.07, fLy: 1.22, aLs: 1.59, aRx: -0.3, aRz: 0.43, fR: -1.38, fRy: 0.04,
+      }),
+      live(P, m, pulse) {
+        P.spine += 0.08 * pulse * m;
+      },
+    },
+    d: {
+      mid: pose({
+        tiltX: 1.4, drop: 0.3 - H, spine: 0.1, head: -0.7, lLx: -1.4, lRx: -1.4, sL: 1.5, sR: 1.5, lLz: 0.2, lRz: -0.2,
+        aLx: -1.4, aRx: -1.4, aLz: 0.25, aRz: -0.25, fL: -0.1, fR: -0.1,
+      }),
+      hold: pose({
+        tiltX: Math.PI / 2, drop: PRONE - H, spine: -0.12, head: -0.25, headY: 1.25,
+        lLx: 0.1, lRx: 0.1, sL: 0.3, sR: 0.2, lLz: 0.2, lRz: -0.2,
+        aLx: -1.74, aLz: 1.02, fL: -0.82, fLy: -0.31, aRx: 0.48, aRz: -0.79, fR: -1.42, fRy: 2,
+      }),
+      live(P, m, pulse, tap, h) {
+        // the free hand lifts off the mat and slaps it
+        P.aLz = lerp(P.aLz, 1.09, tap);
+        P.fL = lerp(P.fL, -1.4, tap);
+        P.fLy = lerp(P.fLy, 0.66, tap);
+        P.sL += 0.35 * Math.max(0, Math.sin(h * 6)) * m;
+        P.sR += 0.35 * Math.max(0, Math.sin(h * 6 + 1.6)) * m;
+      },
+    },
+  },
+};
+
+// Triangle choke. The attacker pulls guard, lifts the hips and locks the legs over the neck and
+// one shoulder, pulling the head down; the defender is folded forward between the thighs and
+// slaps the mat with the hand that is outside.
+MOVE.tri = {
+  a: {
+    mid: pose({
+      tiltX: -Math.PI / 2, drop: LIE - H, spine: 0.12, head: 0.35,
+      lLx: -1.9, lRx: -1.9, sL: 1.3, sR: 1.3, lLz: 0.55, lRz: -0.55,
+      aLx: -1.25, aRx: -1.25, fL: -0.5, fR: -0.5,
+    }),
+    hold: pose({
+      tiltX: -Math.PI / 2 - 0.55, drop: LIE + 0.2 - H, spine: 0.45, head: 0.5,
+      lLx: -0.17, lLz: -0.34, sL: 1.21, lLs: 1.6, lRx: -0.06, lRz: -0.16, sR: 1.39, lRs: 1.6,
+      aLx: -0.65, aLz: -0.05, fL: -0.01, fLy: -0.73, aLs: 2.2, aRx: -0.65, aRz: 0.04, fR: -0.02, fRy: 0.73, aRs: 2.2,
+    }),
+    live(P, m, pulse) {
+      P.drop += 0.02 * pulse * m;
+      P.sL += 0.08 * pulse * m;
+      P.sR += 0.08 * pulse * m;
+    },
+  },
+  d: {
+    mid: pose({
+      drop: KNEEL - H, spine: 0.42, head: -0.15, lLx: -0.75, lRx: -0.75, sL: 2.3, sR: 2.3, lLz: 0.3, lRz: -0.3,
+      aLx: -1.0, aRx: -1.0, fL: -0.4, fR: -0.4,
+    }),
+    hold: pose({
+      drop: KNEEL - H, spine: 0.9, head: -0.4, lLx: -0.8, lRx: -0.8, sL: 2.3, sR: 2.3, lLz: 0.35, lRz: -0.35,
+      aLx: -1.16, aLz: 0.52, fL: -0.04, fLy: -0.71, aLs: 1.59, aRx: -2.27, aRz: 0.41, fR: -0.12, fRy: -0.41, aRs: 1.49,
+    }),
+    live(P, m, pulse, tap, h) {
+      P.fL = -0.04 - 0.75 * tap;
+      P.spine += 0.05 * pulse * m;
+      P.headZ = 0.12 * Math.sin(h * 5) * m;
+    },
+  },
+};
+// Kimura. The defender is on the back; the attacker kneels beside the chest, leans over it and
+// bends the far arm behind in a figure-four; the defender taps the attacker's leg with the near hand.
+MOVE.kim = {
+  a: {
+    mid: pose({
+      drop: KNEEL - H, spine: 0.4, head: -0.1, lLx: -0.75, lRx: -0.75, sL: 2.3, sR: 2.3, lLz: 0.25, lRz: -0.25,
+      aLx: -1.25, aRx: -1.25, fL: -0.45, fR: -0.45,
+    }),
+    hold: pose({
+      drop: KNEEL - H - 0.02, spine: 0.82, head: 0.3, lLx: -0.8, lRx: -0.8, sL: 2.3, sR: 2.3, lLz: 0.4, lRz: -0.4,
+      aRx: -2.09, aRz: 0.13, fR: -0.16, fRy: 1.05, aRs: 2, aLx: -2.02, aLz: -0.15, fL: -0.45, fLy: -0.72, aLs: 2,
+    }),
+    live(P, m, pulse) {
+      // the crank: lean back a little and lift the wrist
+      P.spine -= 0.06 * (0.5 + 0.5 * pulse) * m;
+      P.aRx += 0.07 * (0.5 + 0.5 * pulse) * m;
+    },
+  },
+  d: {
+    mid: pose({
+      tiltX: -Math.PI / 2, drop: LIE - H, spine: 0.12, head: 0.35, lLx: -0.7, lRx: -0.7, sL: 1.0, sR: 1.0, lLz: 0.25, lRz: -0.25,
+      aLx: -1.0, aRx: -1.0, aLz: 0.55, aRz: -0.55, fL: -0.3, fR: -0.3,
+    }),
+    hold: pose({
+      tiltX: -Math.PI / 2, drop: LIE - H, spine: 0.1, head: 0.35, headZ: 0.25, lLx: -0.95, lRx: -0.95, sL: 1.5, sR: 1.5, lLz: 0.25, lRz: -0.25,
+      aLx: 1.2, aLz: 1.43, fL: -1.45, fLy: 0.15, aLs: 1.49, aRx: -2.72, aRz: 0.05, fR: -1.95, fRy: -1.16,
+    }),
+    live(P, m, pulse, tap, h) {
+      P.fL -= 0.12 * (0.5 + 0.5 * pulse) * m; // the bent arm is levered up
+      P.fR = -1.95 + 0.7 * tap;
+      P.lLx += 0.1 * Math.sin(h * 6) * m;
+      P.lRx -= 0.1 * Math.sin(h * 6) * m;
+    },
+  },
+};
+
+// Bridge: on the back with the feet planted, then the hips driven up (fitted so the feet stay put).
+const BR_LOW = pose({
+  tiltX: -Math.PI / 2, drop: LIE - H, spine: 0.1, head: 0.3,
+  lLx: -0.26, lLz: 0.14, sL: 1.73, lRx: -0.26, lRz: -0.14, sR: 1.73, aLx: -1.3, aRx: -1.3, fL: -0.5, fR: -0.5,
+});
+const BR_HIGH = pose({
+  tiltX: -Math.PI / 2 - 0.5, drop: LIE + 0.24 - H, spine: 0, head: 0.55,
+  lLx: 0.8, lLz: 0.09, sL: 1.42, lLs: 1.3, lRx: 0.8, lRz: -0.09, sR: 1.42, lRs: 1.3, aLx: -1.9, aRx: -1.9, fL: -0.25, fR: -0.25,
+});
+// Technical stand-up: seated with the left hand posted behind, the right foot planted and the
+// right hand up as a guard; lifted on that hand and foot with the left leg swung back; standing.
+const SU_SIT = pose({
+  drop: SIT - H, tiltX: -0.3, spine: 0.3, head: 0.1,
+  aLx: 0.48, aLz: 0.08, fL: -0.03, fLy: -1.06, aLs: 1.5, aRx: -1.82, aRz: 0.28, fR: -0.4, fRy: 0.87,
+  lRx: -1.89, lRz: -0.1, sR: 1.95, lRs: 1.2, lLx: -1.12, lLz: 0.15, sL: 0.27,
+});
+const SU_LIFT = pose({
+  drop: 0.29 - H, tiltX: 0.12, sway: -0.38, spine: 0.25, head: -0.15, headZ: 0.3,
+  aLx: 0.11, aLz: 0.38, fL: -0.01, fLy: -0.41, aLs: 1.7, aRx: -1.82, aRz: 0.28, fR: -0.4, fRy: 0.87,
+  lRx: -0.93, lRz: 0.17, sR: 0.19, lRs: 1.06, lLx: 0.2, lLz: 0.38, sL: 1.35,
+});
+const SU_STAND = pose({
+  drop: -0.04, spine: 0.24, head: -0.14, lLx: 0.18, sL: 0.5, lRx: -0.5, sR: 0.6, lLz: 0.18, lRz: -0.18,
+  aLx: -0.95, aRx: -1.1, fL: -0.75, fR: -0.6, aLz: 0.12, aRz: -0.12,
+});
+
 const POSES = {
+  // Positions of a points match (the guard pair is further down). Side control: the one on top
+  // kneels beside the chest and lies across it; the one underneath frames with the arms.
+  sideTop(c, P) {
+    const s = Math.sin(c.time * 1.7 + c.seed);
+    P.drop = KNEEL - H - 0.03;
+    P.spine = 1.08 + 0.04 * s;
+    P.head = 0.2;
+    P.lLx = P.lRx = -0.85;
+    P.sL = P.sR = 2.3;
+    P.lLz = 0.4;
+    P.lRz = -0.4;
+    P.aLx = P.aRx = -1.9;
+    P.aLz = 0.3;
+    P.aRz = -0.3;
+    P.fL = P.fR = -0.4;
+    P.aLs = P.aRs = 1.4;
+  },
+  sideBottom(c, P) {
+    const s = Math.sin(c.time * 2.3 + c.seed);
+    P.tiltX = -Math.PI / 2;
+    P.drop = LIE - H;
+    P.head = 0.35;
+    P.spine = 0.1;
+    P.lLx = -0.9 + 0.12 * s;
+    P.lRx = -0.6 - 0.12 * s;
+    P.sL = 1.5;
+    P.sR = 1.1;
+    P.lLz = 0.25;
+    P.lRz = -0.25;
+    P.aLx = P.aRx = -1.3;
+    P.fL = P.fR = -1.2;
+    P.twist = 0.12 * s;
+  },
+  // Mount: astride the belly, knees wide, hands on the chest; underneath, pushing and bucking.
+  mountTop(c, P) {
+    const s = Math.sin(c.time * 2.3 + c.seed);
+    P.drop = 0.33 - H + 0.02 * Math.max(0, s);
+    P.spine = 0.38;
+    P.head = -0.1;
+    P.lLx = P.lRx = -0.9;
+    P.lLz = 0.75;
+    P.lRz = -0.75;
+    P.sL = P.sR = 2.2;
+    P.aLx = P.aRx = -1.2;
+    P.fL = P.fR = -0.5;
+  },
+  mountBottom(c, P) {
+    const s = Math.sin(c.time * 2.3 + c.seed);
+    P.tiltX = -Math.PI / 2;
+    P.drop = LIE - H + 0.03 * Math.max(0, s);
+    P.head = 0.4;
+    P.lLx = P.lRx = -0.45 - 0.2 * Math.max(0, s);
+    P.sL = P.sR = 0.95;
+    P.lLz = 0.2;
+    P.lRz = -0.2;
+    P.aLx = P.aRx = -1.5;
+    P.fL = P.fR = -0.6;
+  },
+  // The winner's hand goes up.
+  win(c, P) {
+    const b = Math.abs(Math.sin(c.time * 5));
+    P.aRz = -2.85;
+    P.fR = -0.08;
+    P.aRs = 1.15;
+    P.aLz = 0.4;
+    P.bob = 0.03 * b;
+    P.headZ = -0.08;
+    P.spine = -0.04;
+  },
+  // One quick shrimp for the race, then lying ready for the next. c.strokeN picks the side.
+  shrimpf(c, P) {
+    const u = Math.min(1, c.animT / RACE.stroke);
+    const side = (c.strokeN || 0) % 2 === 0 ? 1 : -1;
+    let fold = 0;
+    let tw = 0;
+    let push = 0;
+    if (u < RACE.a) {
+      fold = ease(u / RACE.a);
+      tw = fold;
+    } else if (u < RACE.b) {
+      push = ease((u - RACE.a) / (RACE.b - RACE.a));
+      fold = 1 - push;
+      tw = 1;
+    } else if (u < 1) {
+      tw = 1 - ease((u - RACE.b) / (1 - RACE.b));
+      push = tw;
+    }
+    P.tiltX = -Math.PI / 2;
+    P.drop = LIE + 0.03 * tw - H;
+    P.twist = side * 0.9 * tw;
+    P.lLx = P.lRx = -0.25 - 1.15 * fold;
+    P.sL = P.sR = 0.25 + 1.45 * fold;
+    P.spine = 0.15 + 0.4 * push;
+    P.aLx = P.aRx = -1.3 + 0.5 * (1 - fold);
+    P.fL = P.fR = -0.5;
+    P.head = 0.3;
+  },
+  bridge(c, P) {
+    const n = Math.floor(c.animT / BRIDGE.cycle);
+    const u = (c.animT % BRIDGE.cycle) / BRIDGE.cycle;
+    const side = n % 2 === 0 ? 1 : -1; // onto one shoulder, then the other
+    const k = u < 0.25 ? 0 : u < 0.45 ? ease((u - 0.25) / 0.2) : u < 0.75 ? 1 : 1 - ease((u - 0.75) / 0.25);
+    for (const key of KEYS) P[key] = BR_LOW[key] + (BR_HIGH[key] - BR_LOW[key]) * k;
+    P.twist = side * 0.5 * k;
+    P.aLz = 0.26 + side * 0.5 * k;
+    P.aRz = -0.26 + side * 0.5 * k;
+  },
+  standup(c, P) {
+    const u = clamp(c.animT / STANDUP.dur, 0, 1);
+    const mix = (A, B, v) => {
+      for (const key of KEYS) P[key] = A[key] + (B[key] - A[key]) * v;
+    };
+    if (u < 0.16) mix(NEUTRAL, SU_SIT, ease(u / 0.16));
+    else if (u < STANDUP.a) {
+      mix(SU_SIT, SU_SIT, 0);
+      P.fR += 0.08 * Math.sin(c.animT * 6); // the guard hand stays alive
+    } else if (u < 0.62) mix(SU_SIT, SU_LIFT, ease((u - STANDUP.a) / (0.62 - STANDUP.a)));
+    else if (u < STANDUP.b) mix(SU_LIFT, SU_STAND, ease((u - 0.62) / (STANDUP.b - 0.62)));
+    else mix(SU_STAND, NEUTRAL, ease((u - STANDUP.b) / (1 - STANDUP.b)));
+  },
   loco(c, P, speed, dt) {
     const run = clamp((speed - 2.6) / 1.8, 0, 1);
     const mv = clamp(speed / 1.1, 0, 1);
@@ -219,6 +574,20 @@ const POSES = {
     P.head = 0.12 * k;
     P.aLz = 0.26 - 0.1 * k;
     P.aRz = -0.26 + 0.1 * k;
+  },
+  // Hang loose: the right hand comes up beside the head and shakes.
+  shaka(c, P) {
+    const u = clamp(c.animT / SHAKA.dur, 0, 1);
+    const k = Math.min(1, Math.sin(Math.PI * u) * 2.4);
+    const wig = Math.sin(c.animT * 15) * k;
+    P.aRz = -0.26 - 1.44 * k;
+    P.aRx = -0.3 * k;
+    P.fR = -0.1 - (1.2 + 0.24 * wig) * k;
+    P.fRy = -1.2 * k;
+    P.aRs = 1 + 0.25 * k;
+    P.headZ = -0.14 * k;
+    P.sway = -0.05 * k;
+    P.bob = 0.012 * Math.abs(wig);
   },
   sit(c, P) {
     P.drop = SEIZA - H;
@@ -376,16 +745,62 @@ const POSES = {
     P.aLx = P.aRx = -1.4 * tuck;
     P.fL = P.fR = -0.9 * tuck;
   },
-  // One half of a two-person technique. c.tech = { kind: 'ankle' | 'arm', role: 'a' | 'd', t }.
-  // The attacker takes the defender down and finishes with a straight ankle lock or an armbar;
-  // the defender taps the mat. Where each body stands is decided by Bout in tech.js.
+  // One half of a two-person technique. c.tech = { kind, role: 'a' | 'd', t }. Where each body
+  // stands is decided by Bout in tech.js. The ankle lock and the armbar are written out below:
+  // the attacker takes the defender down and finishes, the defender taps the mat. The other
+  // techniques blend the key poses in MOVE.
   tech(c, P) {
-    const T = c.tech;
-    if (!T) return;
+    const S = c.tech;
+    if (!S) return;
+    const t = S.t;
+    const M = S.T || TECH; // this technique's own moments (an escape ends the hold early)
+    techPose(c, P, S, M);
+    // slipping out: the defender thrashes from the moment the hold is lost until they are free
+    if (M.tap === Infinity && S.role === 'd' && t > TECH.judge && t < M.hold) {
+      const k = Math.sin((t - TECH.judge) * 21);
+      P.twist += 0.32 * k;
+      P.sway += 0.1 * k;
+    }
+  },
+};
+
+// The pose of one body at one moment of a technique. S = { kind, role, t }, M = its moments.
+function techPose(c, P, S, M) {
+  {
+    const T = S;
     const t = T.t;
     const atk = T.role === 'a';
     const arm = T.kind === 'arm';
     const seg = (a, b) => clamp((t - a) / (b - a), 0, 1);
+    if (t < TECH.greet) {
+      greetPose(P, t);
+      return;
+    }
+    const K = MOVE[T.kind] && MOVE[T.kind][T.role];
+    if (K && t >= TECH.clinch && t < M.up) {
+      const put = (A, B, v) => {
+        for (const k of KEYS) P[k] = A[k] + (B[k] - A[k]) * v;
+      };
+      if (t < TECH.down) put(GRIP, K.mid, ease(seg(TECH.clinch, TECH.down)));
+      else if (t < M.hold) {
+        const m = ease(seg(TECH.down, TECH.move));
+        const h = Math.max(0, t - TECH.move);
+        put(K.mid, K.hold, m);
+        K.live(P, m, m >= 1 ? Math.sin(h * 7) : 0, t > M.tap ? Math.max(0, Math.sin((t - M.tap) * 22)) : 0, h);
+      } else {
+        // let go and stand up through a crouch
+        const v = ease(seg(M.hold, M.up));
+        const k = Math.sin(Math.PI * v);
+        put(K.hold, NEUTRAL, v);
+        P.drop -= 0.1 * k;
+        P.lLx -= 0.45 * k;
+        P.lRx -= 0.45 * k;
+        P.sL += 0.85 * k;
+        P.sR += 0.85 * k;
+        P.spine += 0.25 * k;
+      }
+      return;
+    }
     if (t < TECH.clinch) {
       POSES.stance(c, P);
       P.aLx = -1.3;
@@ -427,11 +842,11 @@ const POSES = {
       }
       return;
     }
-    if (t < TECH.hold) {
+    if (t < M.hold) {
       const m = ease(seg(TECH.down, TECH.move));
       const h = Math.max(0, t - TECH.move);
       const pulse = m >= 1 ? Math.sin(h * 7) : 0;
-      const tap = t > TECH.tap ? Math.max(0, Math.sin((t - TECH.tap) * 22)) : 0;
+      const tap = t > M.tap ? Math.max(0, Math.sin((t - M.tap) * 22)) : 0;
       if (atk && arm) {
         // armbar: lie back across the opponent, legs over the chest, the arm hugged to the body
         P.tiltX = (-Math.PI / 2) * m;
@@ -492,9 +907,9 @@ const POSES = {
       }
       return;
     }
-    if (t < TECH.up) {
+    if (t < M.up) {
       // let go, roll up through a crouch and stand
-      const v = ease(seg(TECH.hold, TECH.up));
+      const v = ease(seg(M.hold, M.up));
       const lying = !atk || arm;
       const k = Math.sin(Math.PI * v);
       P.tiltX = (lying ? -Math.PI / 2 : -0.72) * (1 - v);
@@ -504,13 +919,49 @@ const POSES = {
       P.spine = 0.3 * k;
       return;
     }
-    const k = Math.min(1, Math.sin(Math.PI * seg(TECH.up, TECH.end)) * 1.7);
+    const k = Math.min(1, Math.sin(Math.PI * seg(M.up, M.end)) * 1.7);
     P.spine = 0.72 * k;
     P.head = 0.12 * k;
     P.aLz = 0.26 - 0.1 * k;
     P.aRz = -0.26 + 0.1 * k;
-  },
+  }
+}
+
+// Slap and bump before a technique: the right hand winds up, the palms meet, it draws back and
+// the fists meet. Both bodies do the same; standing face to face their right hands cross in the
+// middle. The four arm keys were fitted so that the hand ends on the line between the two.
+const GK = {
+  rest: { aRx: -0.95, aRz: -0.12, fR: -0.75, fRy: 0, aRs: 1 },
+  wind: { aRx: -1.33, aRz: -1.8, fR: -1.06, fRy: 0.13, aRs: 1.35 },
+  slap: { aRx: -1.79, aRz: 0.56, fR: -0.07, fRy: -0.63, aRs: 1.13 },
+  back: { aRx: -0.68, aRz: -0.53, fR: -2.19, fRy: 0.65, aRs: 1 },
+  bump: { aRx: -1.63, aRz: 0.57, fR: -0.01, fRy: -1.06, aRs: 1.14 },
 };
+const GSEQ = [[0, 'rest'], [0.16, 'wind'], [0.3, 'slap'], [0.44, 'slap'], [0.54, 'back'], [0.64, 'bump'], [0.78, 'bump'], [TECH.greet, 'rest']];
+function greetPose(P, t) {
+  P.drop = -0.02;
+  P.spine = 0.08;
+  P.lLx = -0.22;
+  P.sL = 0.3;
+  P.lRx = 0.12;
+  P.sR = 0.22;
+  P.lLz = 0.12;
+  P.lRz = -0.12;
+  P.aLx = -0.5;
+  P.fL = -1.3;
+  P.aLz = 0.15;
+  let i = 0;
+  while (i < GSEQ.length - 2 && t >= GSEQ[i + 1][0]) i++;
+  const A = GK[GSEQ[i][1]];
+  const B = GK[GSEQ[i + 1][1]];
+  const v = ease((t - GSEQ[i][0]) / (GSEQ[i + 1][0] - GSEQ[i][0]));
+  for (const k in A) P[k] = A[k] + (B[k] - A[k]) * v;
+  // lean into each touch
+  const hit = Math.max(0, 1 - Math.abs(t - GREET.slap) / 0.12, 1 - Math.abs(t - GREET.bump) / 0.12);
+  P.spine += 0.1 * hit;
+}
+
+
 
 export class Character {
   constructor(o = {}) {
@@ -595,29 +1046,30 @@ export class Character {
     } else if (style === 'bob') add(skull, g.bob, this.m.hair, 1, 1, 1, 0, 0, 0);
 
     const foreMat = isGi ? this.m.top : this.m.skin;
+    // Each limb keeps its two segments and its end piece so that it can be stretched (see _reach).
     const arm = (sx) => {
       const U = grp(this.spine, sx * 0.2, 0.33, 0);
-      add(U, g.armU, this.m.top, 1, 1, 1, 0, 0, 0);
+      const um = add(U, g.armU, this.m.top, 1, 1, 1, 0, 0, 0);
       const F = grp(U, 0, -BODY.armU, 0);
       F.rotation.order = 'YXZ';
-      add(F, g.armF, foreMat, 1, 1, 1, 0, 0, 0);
-      fine(add(F, bit, this.m.skin, 0.058, 0.058, 0.058, 0, -BODY.armF - 0.03, 0));
-      return [U, F];
+      const fm = add(F, g.armF, foreMat, 1, 1, 1, 0, 0, 0);
+      const hand = fine(add(F, bit, this.m.skin, 0.058, 0.058, 0.058, 0, -BODY.armF - 0.03, 0));
+      return [U, F, { up: um, low: fm, joint: F, end: hand, a: BODY.armU, b: BODY.armF, pad: 0.03, k: 1 }];
     };
-    [this.armL, this.foreL] = arm(1);
-    [this.armR, this.foreR] = arm(-1);
+    [this.armL, this.foreL, this.reachAL] = arm(1);
+    [this.armR, this.foreR, this.reachAR] = arm(-1);
 
     const footMat = q.outfit === 'casual' ? this.m.dark : this.m.skin;
     const leg = (sx) => {
       const T = grp(this.hips, sx * 0.1, 0, 0);
-      add(T, g.thigh, this.m.pants, 1, 1, 1, 0, 0, 0);
+      const tm = add(T, g.thigh, this.m.pants, 1, 1, 1, 0, 0, 0);
       const S = grp(T, 0, -BODY.thigh, 0);
-      add(S, g.shin, this.m.pants, 1, 1, 1, 0, 0, 0);
-      fine(add(S, bit, footMat, 0.078, BODY.sole, 0.118, 0, -BODY.shin, 0.04));
-      return [T, S];
+      const sm = add(S, g.shin, this.m.pants, 1, 1, 1, 0, 0, 0);
+      const foot = fine(add(S, bit, footMat, 0.078, BODY.sole, 0.118, 0, -BODY.shin, 0.04));
+      return [T, S, { up: tm, low: sm, joint: S, end: foot, a: BODY.thigh, b: BODY.shin, pad: 0, k: 1 }];
     };
-    [this.legL, this.shinL] = leg(1);
-    [this.legR, this.shinR] = leg(-1);
+    [this.legL, this.shinL, this.reachLL] = leg(1);
+    [this.legR, this.shinR, this.reachLR] = leg(-1);
 
     // Belt: band, knot, and two hanging ends. One end carries the rank bar and its stripes.
     this.stripes = [];
@@ -693,6 +1145,8 @@ export class Character {
     this.blinkT = rand(0.5, 4);
     this.blink = 0;
     this.label = null;
+    this.bubble = null;
+    this.rate = 20; // how quickly the body follows a new pose; lower for the slow changes of a match
     this.tech = null;
     this.lod = 0;
     this.setLook({});
@@ -783,10 +1237,76 @@ export class Character {
     this.label = sp;
   }
 
+  // A speech bubble over the head for `sec` seconds; say(null) takes it away.
+  say(text, sec = 4) {
+    if (this.bubble) {
+      this.root.remove(this.bubble);
+      this.bubble.material.map.dispose();
+      this.bubble.material.dispose();
+      this.bubble = null;
+    }
+    if (!text) return;
+    const cv = newCanvas(384, 128);
+    const c = cv.getContext('2d');
+    const W = 384;
+    const r = 26;
+    const top = 6;
+    const bot = 98;
+    c.beginPath();
+    c.moveTo(r + 6, top);
+    c.lineTo(W - r - 6, top);
+    c.quadraticCurveTo(W - 6, top, W - 6, top + r);
+    c.lineTo(W - 6, bot - r);
+    c.quadraticCurveTo(W - 6, bot, W - r - 6, bot);
+    c.lineTo(W / 2 + 18, bot);
+    c.lineTo(W / 2, 124);
+    c.lineTo(W / 2 - 18, bot);
+    c.lineTo(r + 6, bot);
+    c.quadraticCurveTo(6, bot, 6, bot - r);
+    c.lineTo(6, top + r);
+    c.quadraticCurveTo(6, top, r + 6, top);
+    c.closePath();
+    c.fillStyle = '#fbf9f3';
+    c.fill();
+    c.lineWidth = 5;
+    c.strokeStyle = '#15171a';
+    c.lineJoin = 'round';
+    c.stroke();
+    c.fillStyle = '#15171a';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    fitText(c, text, W / 2, 54, W - 44, text.length <= 2 ? 62 : 44, 700);
+    const tex = new THREE.CanvasTexture(cv);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }));
+    sp.center.set(0.5, 0);
+    sp.position.set(0, TALL + (this.label ? 0.5 : 0.14), 0);
+    sp.renderOrder = 5;
+    this.root.add(sp);
+    this.bubble = sp;
+    this.bubbleT = sec;
+    this.bubbleAge = 0;
+    this._bubble(0);
+  }
+
+  _bubble(dt) {
+    const sp = this.bubble;
+    this.bubbleT -= dt;
+    this.bubbleAge += dt;
+    if (this.bubbleT <= 0) {
+      this.say(null);
+      return;
+    }
+    const pop = Math.min(1, this.bubbleAge / 0.14);
+    const k = 0.6 + 0.4 * pop * (2 - pop);
+    sp.scale.set(1.5 * k, 0.5 * k, 1);
+    sp.material.opacity = Math.min(1, this.bubbleT / 0.3);
+  }
+
   play(name) {
     if (this.anim === 'roll') this.C.tiltX = 0;
     this.anim = POSES[name] ? name : 'loco';
     this.animT = 0;
+    if (name === 'shrimpf') this.strokeN = (this.strokeN || 0) + 1;
   }
 
   update(dt, speed = 0) {
@@ -796,7 +1316,7 @@ export class Character {
     const C = this.C;
     for (const k of KEYS) P[k] = NEUTRAL[k];
     POSES[this.anim](this, P, speed, dt);
-    const k = 1 - Math.exp(-20 * dt);
+    const k = 1 - Math.exp(-this.rate * dt);
     for (const key of KEYS) C[key] += (P[key] - C[key]) * k;
     let ty = H + C.drop + C.bob;
     let tz = 0;
@@ -812,7 +1332,7 @@ export class Character {
     this.tilt.rotation.set(C.tiltX, 0, C.sway);
     this.rig.rotation.y = C.twist;
     this.spine.rotation.x = C.spine;
-    this.head.rotation.set(C.head, 0, C.headZ);
+    this.head.rotation.set(C.head, C.headY, C.headZ);
     this.armL.rotation.set(C.aLx, 0, C.aLz);
     this.armR.rotation.set(C.aRx, 0, C.aRz);
     this.foreL.rotation.set(C.fL, C.fLy, 0);
@@ -821,10 +1341,16 @@ export class Character {
     this.legR.rotation.set(C.lRx, 0, C.lRz);
     this.shinL.rotation.x = C.sL;
     this.shinR.rotation.x = C.sR;
+    this._reach(this.reachAL, C.aLs);
+    this._reach(this.reachAR, C.aRs);
+    this._reach(this.reachLL, C.lLs);
+    this._reach(this.reachLR, C.lRs);
     if (this.blob) {
       const lying = Math.abs(Math.sin(C.tiltX)) > 0.5;
       this.blob.scale.set(lying ? 0.4 : 0.34, lying ? 0.62 : 0.34, 1);
     }
+
+    if (this.bubble) this._bubble(dt);
 
     this.blinkT -= dt;
     if (this.blinkT <= 0) {
@@ -835,16 +1361,30 @@ export class Character {
     let mood = ANIM_FACE[this.anim] || this.baseFace;
     if (this.anim === 'tech' && this.tech) {
       const tt = this.tech.t;
-      if (tt >= TECH.up) mood = 'calm';
-      else if (tt >= TECH.hold) mood = this.baseFace;
-      else if (this.tech.role === 'a') mood = 'focus';
-      else mood = tt < TECH.clinch ? 'focus' : tt < TECH.down ? 'wow' : 'ouch';
+      const M = this.tech.T || TECH;
+      const out = M.tap === Infinity && tt > TECH.judge; // the defender is slipping out
+      if (tt < TECH.greet) mood = 'grin';
+      else if (tt >= M.up) mood = 'calm';
+      else if (tt >= M.hold) mood = out && this.tech.role === 'd' ? 'grin' : this.baseFace;
+      else if (this.tech.role === 'a') mood = out ? 'wow' : 'focus';
+      else mood = tt < TECH.clinch ? 'focus' : tt < TECH.down ? 'wow' : out ? 'focus' : 'ouch';
     }
     const want = this.blink > 0 && mood !== 'ouch' ? 'calm' : mood;
     if (want !== this.faceNow) {
       this.faceNow = want;
       this.face.material = this.faces[want];
     }
+  }
+
+  // Lengthen or restore one limb: both segments grow along their own axis, the joint and the hand
+  // or foot move out with them.
+  _reach(r, k) {
+    if (Math.abs(k - r.k) < 0.002) return;
+    r.k = k;
+    r.up.scale.y = k;
+    r.low.scale.y = k;
+    r.joint.position.y = -r.a * k;
+    r.end.position.y = -r.b * k - r.pad;
   }
 
   // Jump straight to the current pose (used right after spawning).
@@ -858,5 +1398,6 @@ export class Character {
     for (const k in this.m) this.m[k].dispose();
     if (this.patchTex) this.patchTex.dispose();
     this.setLabel(null);
+    this.say(null);
   }
 }

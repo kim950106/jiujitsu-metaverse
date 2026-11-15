@@ -18,6 +18,20 @@ export function turnToward(a, b, maxStep) {
   return Math.abs(d) <= maxStep ? b : a + Math.sign(d) * maxStep;
 }
 
+// A name as shown to other people: no control or invisible characters, at most 12 long.
+export function cleanName(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/[\u0000-\u001f\u007f​-‏‪-‮⁠-⁯﻿]/g, '').trim().slice(0, 12);
+}
+
+// "with <name>" in Korean: 와 after a syllable that ends open, 과 after one that ends closed. A name
+// that does not end in a Hangul syllable gets both, the way forms print it.
+export function withName(name) {
+  const c = name ? name.charCodeAt(name.length - 1) : 0;
+  if (c < 0xac00 || c > 0xd7a3) return `${name}와(과)`;
+  return `${name}${(c - 0xac00) % 28 ? '과' : '와'}`;
+}
+
 // Belt data. minutes = adult match length at that belt.
 export const BELTS = {
   white: { name: '흰 띠', color: 0xe9e6dc, css: '#e9e6dc', bar: 0x141414, minutes: 5 },
@@ -504,6 +518,117 @@ export class World {
         c.fillRect(0, r * 32, 512, 1.5);
       }
     });
+  }
+
+  texGrass() {
+    return this._cached('grass', 256, 256, (c) => {
+      c.fillStyle = '#7fb24f';
+      c.fillRect(0, 0, 256, 256);
+      const cols = ['#88ba55', '#76aa49', '#93c25f', '#6fa244', '#84b652'];
+      // mowing stripes, then short blades scattered over them
+      for (let i = 0; i < 4; i++) {
+        c.fillStyle = i % 2 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)';
+        c.fillRect(i * 64, 0, 64, 256);
+      }
+      for (let i = 0; i < 1500; i++) {
+        c.fillStyle = pick(cols);
+        const x = Math.random() * 256;
+        const y = Math.random() * 256;
+        c.fillRect(x, y, 2, 3 + Math.random() * 4);
+      }
+    });
+  }
+
+  texDeck() {
+    return this._cached('deck', 256, 256, (c) => {
+      const cols = ['#b08a5e', '#a78157', '#b99368', '#a17b52', '#ad875c'];
+      for (let i = 0; i < 8; i++) {
+        c.fillStyle = pick(cols);
+        c.fillRect(0, i * 32, 256, 32);
+        c.fillStyle = 'rgba(60,35,10,.5)';
+        c.fillRect(0, i * 32, 256, 2.5);
+        c.fillStyle = 'rgba(60,35,10,.35)';
+        c.fillRect(((i * 97) % 200) + 20, i * 32, 2, 32);
+      }
+    });
+  }
+
+  // One tile of an apartment front: four flats wide, six floors tall. Each flat has a wide
+  // balcony window with a railing, the way slab blocks are built.
+  texFlats() {
+    return this._cached('flats', 512, 512, (c) => {
+      const W = 512;
+      const fw = W / 4;
+      const fh = W / 6;
+      c.fillStyle = '#e7e1d5';
+      c.fillRect(0, 0, W, W);
+      for (let r = 0; r < 6; r++) {
+        for (let k = 0; k < 4; k++) {
+          const x = k * fw;
+          const y = r * fh;
+          // balcony glazing
+          c.fillStyle = pick(['#6f849b', '#677d95', '#7a8fa5', '#5f768f']);
+          c.fillRect(x + 12, y + 14, fw - 24, fh - 34);
+          c.fillStyle = 'rgba(255,255,255,.22)';
+          c.fillRect(x + 12, y + 14, fw - 24, 10);
+          // mullions
+          c.fillStyle = '#f4f1ea';
+          for (const u of [0.34, 0.66]) c.fillRect(x + 12 + (fw - 24) * u - 1.5, y + 14, 3, fh - 34);
+          // a few drawn blinds
+          if (Math.random() < 0.3) {
+            c.fillStyle = 'rgba(240,236,226,.75)';
+            c.fillRect(x + 14, y + 16, (fw - 28) * (0.3 + Math.random() * 0.36), fh - 44);
+          }
+          // railing and slab edge
+          c.fillStyle = '#d9d3c6';
+          c.fillRect(x + 8, y + fh - 22, fw - 16, 8);
+          c.fillStyle = '#c9c2b4';
+          c.fillRect(x, y + fh - 6, fw, 6);
+        }
+      }
+      // party walls between flats
+      c.fillStyle = '#ddd7ca';
+      for (let k = 0; k <= 4; k++) c.fillRect(k * fw - 3, 0, 6, W);
+    });
+  }
+
+  // The same front after dark: the wall is a shadow and some of the windows are lit.
+  texFlatsNight() {
+    return this._cached('flatsNight', 512, 512, (c) => {
+      const W = 512;
+      const fw = W / 4;
+      const fh = W / 6;
+      c.fillStyle = '#1d212b';
+      c.fillRect(0, 0, W, W);
+      for (let r = 0; r < 6; r++) {
+        for (let k = 0; k < 4; k++) {
+          const x = k * fw;
+          const y = r * fh;
+          const lit = Math.random() < 0.44;
+          c.fillStyle = lit ? pick(['#ffd98a', '#ffe7b0', '#ffcf73', '#fff1cf', '#cfe0ff']) : pick(['#10141d', '#141a26', '#0e1219']);
+          c.fillRect(x + 12, y + 14, fw - 24, fh - 34);
+          if (lit && Math.random() < 0.5) {
+            // a curtain half drawn
+            c.fillStyle = 'rgba(40,30,20,.45)';
+            c.fillRect(x + 14, y + 16, (fw - 28) * (0.25 + Math.random() * 0.3), fh - 38);
+          }
+          c.fillStyle = '#232834';
+          for (const u of [0.34, 0.66]) c.fillRect(x + 12 + (fw - 24) * u - 1.5, y + 14, 3, fh - 34);
+          c.fillStyle = '#2a2f3b';
+          c.fillRect(x + 8, y + fh - 22, fw - 16, 8);
+          c.fillStyle = '#181c25';
+          c.fillRect(x, y + fh - 6, fw, 6);
+        }
+      }
+      c.fillStyle = '#191d27';
+      for (let k = 0; k <= 4; k++) c.fillRect(k * fw - 3, 0, 6, W);
+    });
+  }
+
+  // Lit material that also glows with its own colours, for things standing in daylight outside
+  // while the room's own lamps are dim.
+  glowMat(tex, k = 0.5, color = 0xffffff) {
+    return this.own(new THREE.MeshLambertMaterial({ map: tex, color, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: k }));
   }
 
   // Merge the static meshes that share a material into one mesh each. A room is built from hundreds
