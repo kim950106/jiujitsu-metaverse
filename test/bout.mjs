@@ -1,6 +1,7 @@
-// A technique as the player sees it: the slap and bump, the struggle bar and the big button, the
-// camera finding its angle, the slow-motion tap with its word on the screen, an escape, the run of
-// wins. Saves pictures to shots/. Usage: node test/bout.mjs
+// Sparring as the player sees it: the request box when a person asks, the bar with the rounds, the
+// strip with techniques and hands, the slap and bump of the first round, the camera finding its
+// angle, the slow-motion tap with its word on the screen, the end of the series and the run of wins.
+// Saves pictures to shots/. Usage: node test/bout.mjs
 import path from 'node:path';
 import { launch, shots, sleep } from './page.mjs';
 
@@ -12,100 +13,123 @@ const ok = (cond, name, extra = '') => {
 };
 const shot = async (page, name) => { await page.screenshot({ path: path.join(shots, `${name}.png`) }); console.log('saved', name); };
 const vis = (page, sel) => page.evaluate((s) => { const e = document.querySelector(s); return !!e && !e.hidden && e.getClientRects().length > 0; }, sel);
+const txt = (page, sel) => page.evaluate((s) => document.querySelector(s).textContent.replace(/\s+/g, ' ').trim(), sel);
 const angle = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
 
 for (const [name, w, h, touch] of [['desk', 1100, 620, false], ['land', 740, 360, true]]) {
-  const page = await T.open({ w, h, touch });
+  // a white belt, so that the series is the short one: first to 3 of 5
+  const page = await T.open({ w, h, touch, sel: { place: 'gym', belt: 'white', stripes: 2, gi: 'white', name: '나' } });
   await T.enter(page);
   await T.freeze(page);
-  // stand next to the sparring partner and win the duel
-  const begin = (kind, npcHand, npcMash) => page.evaluate((k, hand, mash) => {
+  const press = (sel) => page.evaluate((s) => document.querySelector(s).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', pointerId: 7, button: 0 })), sel);
+  await page.evaluate(() => {
     const g = window.__bjj;
     const n = g.world.npcs.find((x) => x.name === '스파링 파트너');
     const p = g.sim.p;
     p.x = n.home.x + 0.95; p.z = n.home.z; p.yaw = -Math.PI / 2;
-    window.__adv(2);
-    g.sim.npcPick = () => hand;
-    g.sim.npcMash = () => mash;
+    window.__adv(2.4);
+    g.sim.npcPick = () => 's';
     g.sim._cool = 0;
     g.cam.yaw = 0.2; // somewhere that is not one of the technique's own angles
-    g.sim.challenge(k);
-    window.__adv(0.4);
-    g.sim.pick('r');
+  });
+  // throw a hand in the round that is open, and run to the technique
+  const round = (kind, hand) => page.evaluate((k, hd) => {
+    const g = window.__bjj;
+    for (let i = 0; i < 900 && !(g.sim.p.mode === 'duel' && g.sim.p.duel && g.sim.p.duel.phase === 'pick' && !g.sim.p.duel.pick); i++) window.__adv(1 / 60);
+    g.sim.setTech(k);
+    g.sim.pick(hd);
     for (let i = 0; i < 300 && !g.sim.p.bout; i++) window.__adv(1 / 60);
-    return !!g.sim.p.bout;
-  }, kind, npcHand, npcMash);
+    return !!g.sim.p.bout && g.sim.p.bout.kind;
+  }, kind, hand);
   const to = (t) => page.evaluate((at) => { const b = window.__bjj.sim.p.bout; if (b) window.__adv(Math.max(0, at - b.t)); }, t);
   const st = () => page.evaluate(() => {
     const g = window.__bjj;
     const b = g.sim.p.bout;
-    return { t: b ? b.t : -1, yaw: g.cam.yaw, byaw: b ? b.yaw : 0, auto: g.view.auto, off: g.view.off, main: document.querySelector('#b-main').textContent, outcome: b ? b.outcome : -1, m: b ? Object.assign({}, b.m) : null, push: g.cam.push };
+    return { t: b ? b.t : -1, yaw: g.cam.yaw, byaw: b ? b.yaw : 0, auto: g.view.auto, off: g.view.off, push: g.cam.push, T: b ? b.T : null };
   });
 
-  ok(await begin('ankle', 's', 0), `${name}: the technique starts`);
+  ok(!(await vis(page, '#matchbar')) && !(await vis(page, '#rps')), `${name}: no bar and no strip before sparring`);
+  if (touch) await press('#b-spar'); else await page.keyboard.press('KeyF');
+  ok(await page.evaluate(() => { const d = window.__bjj.sim.p.duel; return !!d && d.kind === 'spar' && d.phase === 'intro'; }), `${name}: sparring with the NPC starts at once`);
+  ok(await vis(page, '#matchbar') && !(await vis(page, '#rps')), `${name}: during the bow the bar is up, no hands yet`);
+  ok((await txt(page, '#mt-clock')) === '1판째' && (await txt(page, touch ? '#mt-short' : '#mt-pos')) === '5판 3선승' && (await txt(page, '#mt-me')) === '0', `${name}: the bar shows the round and the rule`, await txt(page, '#matchbar'));
+  await T.adv(page, 1.8);
+  ok(await vis(page, '#rps') && await vis(page, touch ? '#rps-cycle' : '#rps-techs') && await vis(page, '#rps-hands'), `${name}: then the strip with techniques and hands`);
+  ok((await txt(page, touch ? '#rps-cycle' : '#rps-status')) === (touch ? '기술 · 암바 ⟳' : '이기면 암바!'), `${name}: it says which technique a win puts on`, await txt(page, '#rps-status'));
+  ok((await round('ankle', 'r')) === 'ankle', `${name}: the first throw is won: the chosen technique`);
+  ok(!(await vis(page, '#rps')), `${name}: the strip is put away during the technique`);
   await to(0.4);
   await sleep(350);
   await shot(page, `bout-${name}-1-slap`);
   await to(3.25);
-  await sleep(1300); // real time for the camera to come round
+  await sleep(1500); // real time for the camera to come round
   let s = await st();
   ok(s.auto && angle(s.yaw, s.byaw + s.off) < 0.2 && Math.abs(Math.abs(s.off) - Math.PI / 2) < 0.01, `${name}: the camera has come round to the side`, `off ${s.off.toFixed(2)}, ${angle(s.yaw, s.byaw + s.off).toFixed(2)} away`);
-  ok(await vis(page, '#mash') && s.main === '연타!', `${name}: the struggle bar is up and the big button says so`, s.main);
-  ok((await page.evaluate(() => document.querySelector('#mash-text').textContent)) === '연타해서 조이세요!', `${name}: the attacker is told to tighten`);
-  // hammer the big button: touches on a phone, the key on a desk
-  for (let i = 0; i < 3; i++) {
-    if (touch) await page.evaluate(() => document.querySelector('#b-main').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', pointerId: 7, button: 0 })));
-    else await page.keyboard.press('Space');
-    await page.evaluate(() => window.__adv(0.1));
-  }
-  s = await st();
-  ok(s.m.a === 3, `${name}: three presses are counted`, JSON.stringify(s.m));
-  const bar = await page.evaluate(() => document.querySelector('#mash-bar').style.width);
-  ok(bar === '100%', `${name}: the bar has moved to the tap side`, bar);
-  await sleep(200);
-  await shot(page, `bout-${name}-2-struggle`);
-  await to(5.25);
-  ok(!(await vis(page, '#mash')), `${name}: the bar goes away when the struggle ends`);
-  await to(5.86);
+  ok((await txt(page, '#b-main')) !== '연타!' && !(await vis(page, '#mash')), `${name}: nothing to hammer: the technique ends in a tap`);
+  await shot(page, `bout-${name}-2-hold`);
+  await to(s.T.tap + 0.06);
   await sleep(700);
   s = await st();
-  ok(s.outcome === 2 && await vis(page, '#flash') && (await page.evaluate(() => document.querySelector('#flash').textContent)) === '탭!', `${name}: the tap fills the screen`);
+  ok(await vis(page, '#flash') && (await txt(page, '#flash')) === '탭!', `${name}: the tap fills the screen`);
   ok(s.push < 0.85, `${name}: the camera pushes in`, s.push.toFixed(2));
+  ok((await txt(page, '#mt-me')) === '1' && (await txt(page, '#mt-them')) === '0', `${name}: the round is on the bar at the tap`, await txt(page, '#matchbar'));
   await shot(page, `bout-${name}-3-tap`);
-  await page.evaluate(() => window.__adv(6));
-  await sleep(400);
-  ok(await page.evaluate(() => window.__bjj.sim.p.mode === 'free' && window.__bjj.sim.streak === 1), `${name}: free again, one win`);
-  ok(!(await vis(page, '#streak')), `${name}: one win is not yet a run`);
-  await page.evaluate(() => window.__adv(7));
-  // a second win: the run shows; this time the player turns the camera and it is left alone
-  ok(await begin('rnc', 's', 0), `${name}: a second technique`);
+  // the second round is lost, the third and fourth won: 3 : 1 ends it
+  await page.evaluate(() => { window.__bjj.sim.npcPick = () => 'p'; });
+  await round('arm', 'r');
+  ok(await page.evaluate(() => { const b = window.__bjj.sim.p.bout; return b.d === window.__bjj.sim.p && b.skip; }), `${name}: a lost throw: the partner's technique, without the slap and bump`);
+  await to(6.2);
+  ok((await txt(page, '#mt-them')) === '1' && (await txt(page, '#mt-clock')) === '3판째', `${name}: 1 : 1, third round`, await txt(page, '#matchbar'));
+  await page.evaluate(() => { window.__bjj.sim.npcPick = () => 's'; });
+  await round('rnc', 'r');
+  // this time the player turns the camera and it is left alone
   await to(2.0);
-  await page.evaluate(() => { const g = window.__bjj; g.spin = 1; });
+  await page.evaluate(() => { window.__bjj.spin = 1; });
   await sleep(250);
   await page.evaluate(() => { window.__bjj.spin = 0; });
   const y0 = (await st()).yaw;
   await sleep(700);
   s = await st();
   ok(!s.auto && angle(s.yaw, y0) < 0.02, `${name}: once the player turns the camera it stays where they put it`);
-  await to(5.9);
-  await page.evaluate(() => window.__adv(7));
-  await sleep(300);
-  ok(await vis(page, '#streak') && (await page.evaluate(() => document.querySelector('#streak').textContent)) === '2연승', `${name}: two in a row shows as a run`);
-  await page.evaluate(() => window.__adv(7));
-  // held by the NPC and hammering out
-  ok(await begin('guil', 'p', 2), `${name}: held by the partner`);
-  await to(3.3);
-  ok((await page.evaluate(() => document.querySelector('#mash-text').textContent)) === '연타해서 빠져나오세요!', `${name}: the defender is told to get out`);
-  for (let i = 0; i < 6; i++) await page.evaluate(() => { window.__bjj.main(); window.__adv(0.08); });
-  await sleep(150);
-  await shot(page, `bout-${name}-4-resist`);
-  await to(5.86);
+  await round('tri', 'r');
+  await page.evaluate(() => { const g = window.__bjj; for (let i = 0; i < 900 && !(g.sim.p.duel && g.sim.p.duel.phase === 'end'); i++) window.__adv(1 / 60); window.__adv(0.4); });
   await sleep(500);
-  s = await st();
-  ok(s.outcome === 1 && (await page.evaluate(() => document.querySelector('#flash').textContent)) === '탈출!', `${name}: six presses against two: out`, JSON.stringify(s.m));
-  await shot(page, `bout-${name}-5-escape`);
-  await page.evaluate(() => window.__adv(6));
-  ok(await page.evaluate(() => window.__bjj.sim.p.mode === 'free' && window.__bjj.sim.streak === 2), `${name}: the run survives an escape`);
+  ok((await txt(page, '#mt-clock')) === '승리' && (await txt(page, '#mt-me')) === '3' && (await txt(page, '#flash')) === '승리!', `${name}: three rounds won: the sparring is won`, await txt(page, '#matchbar'));
+  ok(/스파링 종료 · 나 승 · 3 : 1/.test(await page.evaluate(() => document.querySelector('#toasts').textContent)), `${name}: and said so`);
+  await shot(page, `bout-${name}-4-win`);
+  await T.adv(page, 5);
+  await sleep(300);
+  ok(await page.evaluate(() => window.__bjj.sim.p.mode === 'free' && window.__bjj.sim.streak === 1) && !(await vis(page, '#matchbar')), `${name}: free again, one win, the bar is gone`);
+  ok(!(await vis(page, '#streak')), `${name}: one win is not yet a run`);
+  // a second series won: the run shows, on the badge and over the head
+  await T.adv(page, 7);
+  await page.evaluate(() => { const g = window.__bjj; const n = g.world.npcs.find((x) => x.name === '스파링 파트너'); g.sim.p.x = n.home.x + 0.95; g.sim.p.z = n.home.z; window.__adv(0.5); g.sim._cool = 0; g.sim.challenge(); });
+  for (let i = 0; i < 3; i++) await round('kim', 'r');
+  await page.evaluate(() => { const g = window.__bjj; for (let i = 0; i < 900 && g.sim.p.duel; i++) window.__adv(1 / 60); });
+  await sleep(300);
+  ok(await vis(page, '#streak') && (await txt(page, '#streak')) === '2연승' && await page.evaluate(() => window.__bjj.labelText === '나 · 2연승'), `${name}: two in a row shows as a run`);
+
+  // a person asks: the request box, yes and no
+  const ask = (o) => page.evaluate((a) => window.__bjj.sim.h.ask(a), o);
+  await ask({ name: '친구', rule: '5판 3선승', left: 15, total: 15 });
+  ok(await vis(page, '#sparask') && (await txt(page, '#sparask-text')) === '친구 님이 스파링을 신청했습니다 · 5판 3선승', `${name}: a request shows who asks and the rule`, await txt(page, '#sparask-text'));
+  const fit = await page.evaluate(() => {
+    const r = document.querySelector('#sparask').getBoundingClientRect();
+    const b = Array.from(document.querySelectorAll('#sparask button')).map((x) => x.getBoundingClientRect());
+    return r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight && b.every((x) => x.height >= 30 && x.width >= 80);
+  });
+  ok(fit && await page.evaluate(() => document.querySelector('#b-spar').classList.contains('ready')), `${name}: the box is on the screen with two buttons big enough to hit; the sparring button lights up as a yes`);
+  await sleep(200);
+  await shot(page, `bout-${name}-5-ask`);
+  // the buttons answer the simulation (there is nobody asking here, so the box is simply put away)
+  await page.evaluate(() => { const s = window.__bjj.sim; window.__ans = []; const real = s.answer.bind(s); s.answer = (y) => { window.__ans.push(y); s.h.ask(null); return real(y); }; });
+  await page.evaluate(() => { window.__bjj.sim.ask = { id: 'w', av: { gone: true, du: null }, t: 0, seen: 1e9 }; });
+  if (touch) await press('#sparask-no'); else await page.keyboard.press('Escape');
+  ok(await page.evaluate(() => window.__ans.join() === 'false') && !(await vis(page, '#sparask')), `${name}: no`);
+  await ask({ name: '친구', rule: '5판 3선승', left: 15, total: 15 });
+  await page.evaluate(() => { window.__bjj.sim.ask = { id: 'x', av: { gone: true, du: null }, t: 0, seen: 1e9 }; });
+  if (touch) await press('#sparask-yes'); else await page.keyboard.press('KeyF');
+  ok(await page.evaluate(() => window.__ans.join() === 'false,true') && !(await vis(page, '#sparask')), `${name}: yes`);
   await page.close();
 }
 await T.close();

@@ -1,4 +1,5 @@
-// The button pad, its two lists (techniques, things to say), speech bubbles and the timetable.
+// The button pad, its two lists (drills, things to say), the sparring button and its strip, the
+// keys on a desk, speech bubbles and the timetable.
 // Saves pictures to shots/. Usage: node test/pad.mjs
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -22,7 +23,7 @@ const shot = async (page, name, deg = 0) => {
   if (deg) turned(f, deg);
   console.log('saved', name);
 };
-const until = (page, fn, arg) => page.waitForFunction(fn, { timeout: 8000, polling: 30 }, arg).then(() => true, () => false);
+const until = (page, fn, arg) => page.waitForFunction(fn, { timeout: 60000, polling: 30 }, arg).then(() => true, () => false);
 const vis = (page, sel) => page.evaluate((s) => { const e = document.querySelector(s); return !!e && !e.hidden && e.getClientRects().length > 0; }, sel);
 // every button of a list is inside the screen and none overlaps another
 const laidOut = (page, sel) => page.evaluate((s) => {
@@ -42,7 +43,7 @@ const laidOut = (page, sel) => page.evaluate((s) => {
   await T.enter(page);
   await sleep(300);
   const pad = await page.evaluate(() => Array.from(document.querySelectorAll('.pad .pb')).map((b) => b.textContent.replace(/\s+/g, '')));
-  ok(pad.join('|').includes('말') && pad.some((t) => t.startsWith('기술')) && pad.some((t) => t.startsWith('브릿지')) && pad.some((t) => t.startsWith('스탠드업')), 'pad has talk, techniques, bridge, stand-up', pad.join(' '));
+  ok(pad.join('|').includes('말') && pad.some((t) => t.startsWith('스파링')) && pad.some((t) => t.startsWith('동작')) && pad.some((t) => t.startsWith('뒷구르기')) && !pad.some((t) => t.startsWith('기술')), 'pad has talk, sparring, the drill list and the rolls; no technique button', pad.join(' '));
   // the say list
   await page.click('.pb[data-pop="say"]');
   ok(await vis(page, '#pop-say'), 'the talk button opens its list');
@@ -71,25 +72,90 @@ const laidOut = (page, sel) => page.evaluate((s) => {
   await simT(0.8);
   await shot(page, 'pad-shaka');
   ok(await until(page, () => window.__bjj.sim.p.mode === 'free'), 'and it ends by itself');
-  // techniques: refused away from a partner, offered next to one on the mat
-  await page.click('.pb[data-pop="tech"]');
-  ok(!(await vis(page, '#pop-tech')), 'no technique list without a partner');
+  // the keys asked for: arrows move, W A S D do not
+  const pos = () => page.evaluate(() => ({ x: window.__bjj.sim.p.x, z: window.__bjj.sim.p.z }));
+  let p0 = await pos();
+  await page.keyboard.down('KeyW');
+  await simT(0.5);
+  await page.keyboard.up('KeyW');
+  await until(page, () => window.__bjj.sim.p.mode === 'free');
+  let p1 = await pos();
+  ok(Math.hypot(p1.x - p0.x, p1.z - p0.z) < 0.05, 'W no longer walks');
+  await page.keyboard.down('ArrowUp');
+  await simT(0.6);
+  await page.keyboard.up('ArrowUp');
+  p0 = await pos();
+  ok(Math.hypot(p1.x - p0.x, p1.z - p0.z) > 0.5, 'the arrow keys walk', Math.hypot(p1.x - p0.x, p1.z - p0.z).toFixed(2));
+  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.down('ArrowDown');
+  await simT(0.6);
+  await page.keyboard.up('ArrowDown');
+  await page.keyboard.up('ShiftLeft');
+  p1 = await pos();
+  ok(Math.hypot(p1.x - p0.x, p1.z - p0.z) > 1.8, 'Shift runs', Math.hypot(p1.x - p0.x, p1.z - p0.z).toFixed(2));
+  await page.keyboard.press('KeyA');
+  ok(await until(page, () => window.__bjj.sim.p.act === 'bow'), 'A bows');
+  await until(page, () => window.__bjj.sim.p.mode === 'free');
+  await page.keyboard.press('KeyR');
+  ok(await until(page, () => window.__bjj.sim.p.mode === 'sit'), 'R sits in seiza');
+  await page.keyboard.press('KeyR');
+  // sparring: refused away from a partner, offered next to one on the mat
+  ok(!(await page.evaluate(() => document.querySelector('#b-spar').classList.contains('ready'))), 'the sparring button is dim without a partner');
   await page.evaluate(() => {
     const g = window.__bjj;
     const n = g.world.npcs.find((x) => x.name === '스파링 파트너');
     g.sim.p.x = n.x + 0.9; g.sim.p.z = n.z; g.sim.p.yaw = -Math.PI / 2;
   });
-  ok(await until(page, () => document.querySelector('.pb[data-pop="tech"]').classList.contains('ready')), 'next to a partner on the mat the technique button lights up');
-  await sleep(1600); // the bow on stepping onto the mat
-  await page.click('.pb[data-pop="tech"]');
-  ok(await vis(page, '#pop-tech'), 'and opens the list');
-  lay = await laidOut(page, '#pop-tech');
-  ok(lay.n === 8 && lay.inside && !lay.clash, 'technique list is laid out', JSON.stringify(lay));
-  await shot(page, 'pad-tech-desktop');
-  await page.click('#pop-tech button[data-act="guil"]');
-  ok(await until(page, () => !!window.__bjj.sim.p.duel && window.__bjj.sim.p.duel.kind === 'guil'), 'choosing one starts the duel');
-  ok(!(await vis(page, '#pop-tech')), 'the list is put away');
-  await page.evaluate(() => window.__bjj.sim.cancelDuel());
+  ok(await until(page, () => document.querySelector('#b-spar').classList.contains('ready')), 'next to a partner on the mat the sparring button lights up');
+  await simT(1.6); // the bow on stepping onto the mat
+  await until(page, () => window.__bjj.sim.p.mode === 'free');
+  // the drill keys, on the mat
+  for (const [key, act] of [['KeyQ', 'bridge'], ['KeyW', 'scoot'], ['KeyE', 'standup'], ['KeyS', 'roll'], ['KeyD', 'rollb'], ['KeyT', 'shrimp']]) {
+    await page.evaluate(() => { const g = window.__bjj; const n = g.world.npcs.find((x) => x.name === '스파링 파트너'); g.sim.p.x = n.x + 2.5; g.sim.p.z = n.z + 1.5; g.sim.p.yaw = 0; });
+    await until(page, () => window.__bjj.sim.p.onMat);
+    await page.keyboard.press(key);
+    ok(await until(page, (a) => window.__bjj.sim.p.act === a, act), `${key.slice(3)} does ${act}`);
+    if (act === 'scoot') { await simT(0.5); await shot(page, 'pad-scoot'); }
+    if (act === 'rollb') { await simT(0.55); await shot(page, 'pad-rollb'); }
+    await page.evaluate(() => { window.__bjj.sim._endAction(); });
+  }
+  // the drill list
+  await page.click('.pb[data-pop="drill"]');
+  ok(await vis(page, '#pop-drill'), 'the drill button opens its list');
+  lay = await laidOut(page, '#pop-drill');
+  ok(lay.n === 8 && lay.inside && !lay.clash, 'drill list is laid out', JSON.stringify(lay));
+  await shot(page, 'pad-drill-desktop');
+  await page.click('#pop-drill button[data-act="bridge"]');
+  ok(await until(page, () => window.__bjj.sim.p.act === 'bridge') && !(await vis(page, '#pop-drill')), 'choosing one does it and puts the list away');
+  await page.evaluate(() => {
+    const g = window.__bjj;
+    g.sim._endAction();
+    const n = g.world.npcs.find((x) => x.name === '스파링 파트너');
+    g.sim.p.x = n.x + 0.9; g.sim.p.z = n.z; g.sim.p.yaw = -Math.PI / 2;
+    g.sim.npcPick = () => 's';
+  });
+  await until(page, () => document.querySelector('#b-spar').classList.contains('ready'));
+  await page.keyboard.press('KeyF');
+  ok(await until(page, () => !!window.__bjj.sim.p.duel && window.__bjj.sim.p.duel.kind === 'spar'), 'F starts sparring with the NPC at once');
+  ok(await until(page, () => window.__bjj.sim.p.duel.phase === 'pick'), 'after the bow, hands are thrown');
+  ok(await vis(page, '#rps-techs') && await vis(page, '#matchbar'), 'the strip shows the techniques, the bar the rounds');
+  ok((await page.evaluate(() => document.querySelector('#mt-pos').textContent)) === '6판 4선승', 'by the lower belt\'s rule (purple against blue)', await page.evaluate(() => document.querySelector('#mt-pos').textContent));
+  await page.click('#rps-techs button[data-tech="guil"]');
+  ok((await page.evaluate(() => window.__bjj.sim.tech)) === 'guil', 'a technique is chosen with a click');
+  await page.keyboard.press('KeyD');
+  ok((await page.evaluate(() => window.__bjj.sim.tech)) === 'kim' && (await page.evaluate(() => document.querySelector('#rps-techs [data-tech="kim"]').getAttribute('aria-pressed'))) === 'true', 'or with its key: in sparring Q W E R A S D are the techniques');
+  await shot(page, 'pad-spar-desktop');
+  await page.keyboard.press('Digit2');
+  ok(await until(page, () => window.__bjj.sim.p.duel.pick === 'r'), '2 throws rock');
+  ok(await until(page, () => !!window.__bjj.sim.p.bout && window.__bjj.sim.p.bout.kind === 'kim'), 'the won throw puts on the chosen technique');
+  await page.evaluate(() => { const g = window.__bjj; g.sim.p.bout.cancel = true; });
+  await until(page, () => !window.__bjj.sim.p.duel && !window.__bjj.sim.busy);
+  await page.evaluate(() => { const g = window.__bjj; g.sim._cool = 0; const n = g.world.npcs.find((x) => x.name === '스파링 파트너'); n.x = n.home.x; n.z = n.home.z; n.busy = false; n.back = false; g.sim.p.x = n.x + 0.9; g.sim.p.z = n.z; });
+  await until(page, () => document.querySelector('#b-spar').classList.contains('ready'));
+  await page.keyboard.press('KeyF');
+  await until(page, () => !!window.__bjj.sim.p.duel);
+  await page.keyboard.press('Escape');
+  ok(await until(page, () => !window.__bjj.sim.p.duel && window.__bjj.sim.p.mode === 'free'), 'Esc gives the sparring up');
   // timetable from the master
   await page.evaluate(() => { const g = window.__bjj; g.sim.p.x = 0; g.sim.p.z = -5.4; });
   ok(await until(page, () => document.querySelector('#b-main').textContent === '묻기'), 'by the master the big button asks');
@@ -120,16 +186,16 @@ for (const [name, w, h, deg] of [['land', 640, 360, 0], ['small', 568, 320, 0], 
     const n = g.world.npcs.find((x) => x.name === '스파링 파트너');
     g.sim.p.x = n.x + 0.9; g.sim.p.z = n.z; g.sim.p.yaw = -Math.PI / 2;
   });
-  await until(page, () => document.querySelector('.pb[data-pop="tech"]').classList.contains('ready'));
+  await until(page, () => document.querySelector('#b-spar').classList.contains('ready'));
   await sleep(1600);
   const press = (sel) => page.evaluate((s) => document.querySelector(s).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', pointerId: 5, button: 0 })), sel);
-  await press('.pb[data-pop="tech"]');
-  ok(await vis(page, '#pop-tech'), `${name}: technique list opens`);
-  let lay = await laidOut(page, '#pop-tech');
-  ok(lay.n === 8 && lay.inside && !lay.clash, `${name}: technique list fits the screen`, JSON.stringify(lay));
-  await shot(page, `pad-tech-${name}`, deg);
+  await press('.pb[data-pop="drill"]');
+  ok(await vis(page, '#pop-drill'), `${name}: drill list opens`);
+  let lay = await laidOut(page, '#pop-drill');
+  ok(lay.n === 8 && lay.inside && !lay.clash, `${name}: drill list fits the screen`, JSON.stringify(lay));
+  await shot(page, `pad-drill-${name}`, deg);
   await press('.pb[data-pop="say"]');
-  ok(await vis(page, '#pop-say') && !(await vis(page, '#pop-tech')), `${name}: the talk list replaces it`);
+  ok(await vis(page, '#pop-say') && !(await vis(page, '#pop-drill')), `${name}: the talk list replaces it`);
   lay = await laidOut(page, '#pop-say');
   ok(lay.n === 5 && lay.inside && !lay.clash, `${name}: talk list fits the screen`, JSON.stringify(lay));
   await shot(page, `pad-say-${name}`, deg);
@@ -146,6 +212,31 @@ for (const [name, w, h, deg] of [['land', 640, 360, 0], ['small', 568, 320, 0], 
     return false;
   });
   ok(!clash, `${name}: pad buttons do not overlap`);
+  // sparring by touch: the strip with techniques and hands sits clear of the stick and the buttons
+  await until(page, () => window.__bjj.sim.p.mode === 'free' && !window.__bjj.sim.busy);
+  await page.evaluate(() => { window.__bjj.sim.npcPick = () => 's'; window.__bjj.sim._cool = 0; });
+  await press('#b-spar');
+  ok(await until(page, () => !!window.__bjj.sim.p.duel && window.__bjj.sim.p.duel.phase === 'pick'), `${name}: the sparring button starts it`);
+  await sleep(500);
+  const strip = await page.evaluate(() => {
+    const box = (e) => e.getBoundingClientRect();
+    const r = box(document.querySelector('#rps'));
+    const hit = (b) => r.left < b.right - 1 && b.left < r.right - 1 && r.top < b.bottom - 1 && b.top < r.bottom - 1;
+    const techs = [box(document.querySelector('#rps-cycle'))];
+    return {
+      inside: r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth + 0.5 && r.bottom <= window.innerHeight + 0.5,
+      pad: Array.from(document.querySelectorAll('.pad .pb')).map(box).some(hit),
+      stick: hit(box(document.querySelector('#stick'))),
+      techs: techs.length, small: techs.some((t) => Math.min(t.width, t.height) < 17 || Math.max(t.width, t.height) < 26),
+      clipped: techs.some((t) => t.left < r.left - 0.5 || t.right > r.right + 0.5 || t.top < r.top - 0.5 || t.bottom > r.bottom + 0.5),
+    };
+  });
+  ok(strip.inside && !strip.pad && !strip.stick && strip.techs === 1 && !strip.small && !strip.clipped, `${name}: the strip fits between the stick and the buttons, with the technique button`, JSON.stringify(strip));
+  await shot(page, `pad-spar-${name}`, deg);
+  for (let i = 0; i < 4; i++) await press('#rps-cycle'); // arm → guil → omo → rnc → tri
+  await press('.hand[data-hand="r"]');
+  ok(await until(page, () => !!window.__bjj.sim.p.bout && window.__bjj.sim.p.bout.kind === 'tri'), `${name}: a touch chooses the technique and throws the hand`);
+  await page.evaluate(() => { const s = window.__bjj.sim; s.p.bout.cancel = true; });
   await page.close();
 }
 

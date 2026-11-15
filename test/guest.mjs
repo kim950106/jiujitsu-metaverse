@@ -74,7 +74,7 @@ const line = (x, c = 0) => [{ c, w: 1, pts: [[x, 10], [x + 30, 120]] }];
   assert.equal(list.length, 2);
   assert.equal(list[0].id, c.id);
   assert.equal(list[0].n.length, 12);
-  assert.equal(list[0].s, 4);
+  assert.equal(list[0].s, 6); // a black belt's stripes are degrees, up to six
   assert.ok(list.every((e) => e.mine));
   assert.match(metaLine(list[1]), /^\d{4}\.\d{2}\.\d{2} · 현철 블루 4그랄$/);
   assert.equal(fires, 2);

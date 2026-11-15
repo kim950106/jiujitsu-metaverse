@@ -1,4 +1,4 @@
-// The points match, the shrimp race and the group photo as they appear on the page: the match bar,
+// Sparring on a phone, the shrimp race and the group photo as they appear on the page: the bar,
 // the race strip, the countdown, the picture. Saves pictures to shots/. Usage: node test/stage6.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,18 +36,7 @@ const toPartner = (page) => page.evaluate(() => {
 const rect = (page, sel) => page.evaluate((s) => { const e = document.querySelector(s); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }, sel);
 const apart = (a, b) => !a || !b || a.r <= b.l + 1 || b.r <= a.l + 1 || a.b <= b.t + 1 || b.b <= a.t + 1;
 const inside = (a, w, h) => !!a && a.l >= -0.5 && a.t >= -0.5 && a.r <= w + 0.5 && a.b <= h + 0.5;
-// one round of a match against the NPC: the NPC throws scissors, the player the hand given
-const round = async (T2, page, hand, press) => {
-  await T2.adv(page, 0.05);
-  for (let i = 0; i < 80; i++) {
-    if (await page.evaluate(() => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'pick' && !d.pick; })) break;
-    await T2.adv(page, 0.1);
-  }
-  await press(hand);
-  await T2.adv(page, 0.1);
-};
-
-/* ---------- desktop: a whole match against the partner ---------- */
+/* ---------- desktop: the race and the photo (sparring is in bout.mjs) ---------- */
 {
   const page = await T.open({ w: 1280, h: 720 });
   await T.enter(page);
@@ -57,93 +46,6 @@ const round = async (T2, page, hand, press) => {
   await toPartner(page);
   await T.adv(page, 0.3);
   await page.evaluate(() => { const g = window.__bjj; g.sim.npcPick = () => 's'; g.sim.npcMash = () => 0; g.cam.yaw = Math.PI; g.cam.pitch = 0.42; g.cam.dist = 3.6; });
-  ok(!(await vis(page, '#matchbar')), 'no match bar outside a match');
-  await page.click('.pb[data-pop="tech"]');
-  ok((await txt(page, '#pop-tech button[data-act="match"]')).startsWith('한 판'), 'the technique list offers a match');
-  await page.click('#pop-tech button[data-act="match"]');
-  ok(await page.evaluate(() => { const d = window.__bjj.sim.p.duel; return !!d && d.kind === 'match' && d.phase === 'intro'; }), 'choosing it starts a match');
-  ok(await vis(page, '#matchbar') && !(await vis(page, '#rps')), 'during the bow: the bar is up, no hands yet');
-  ok((await txt(page, '#mt-clock')) === '1:12' && (await txt(page, '#mt-pos')) === '스탠딩' && (await txt(page, '#mt-name')) === '스파링 파트너', 'the bar shows the clock, the position and the name', `${await txt(page, '#matchbar')}`);
-  await T.adv(page, 1.6);
-  ok(await vis(page, '#rps') && !(await vis(page, '#rps-title')), 'then the hands, as a strip without a title');
-  ok((await txt(page, '#rps-status')) === '이기면 다음 포지션!' && (await txt(page, '#rps-cancel')) === '기권', 'with what the round is for, and a way to give up', await txt(page, '#rps-status'));
-  const bar = await rect(page, '#matchbar');
-  const panel = await rect(page, '#rps');
-  ok(apart(bar, panel) && inside(bar, 1280, 720) && inside(panel, 1280, 720) && panel.t > 720 * 0.7 && panel.b - panel.t < 130, 'the strip sits low and leaves the middle of the screen free', JSON.stringify(panel));
-  // the two bodies are drawn above the strip
-  const feet = await page.evaluate(() => {
-    const g = window.__bjj;
-    const out = [];
-    for (const o of [g.sim.p, g.world.npcs.find((x) => x.name === '스파링 파트너')]) {
-      const v = new THREE.Vector3(o.x, 0.04, o.z).project(g.camera);
-      out.push(Math.round((1 - v.y) / 2 * window.innerHeight));
-    }
-    return out;
-  });
-  ok(feet.every((y) => y < panel.t), 'both stand above it on the screen', `feet at ${feet.join(', ')} px, strip from ${Math.round(panel.t)}`);
-  await sleep(300);
-  await shot(page, 's6-match-pick');
-  const click = (hand) => page.click(`.hand[data-hand="${hand}"]`);
-  await click('r');
-  await T.adv(page, 0.1);
-  ok((await txt(page, '#rps-status')) === '이겼습니다!', 'a won round is told', await txt(page, '#rps-status'));
-  await T.adv(page, 1.4);
-  ok(!(await vis(page, '#rps')) && (await txt(page, '#mt-pos')) === '가드 · 내가 위', 'while the position is taken the hands are put away', await txt(page, '#mt-pos'));
-  await T.adv(page, 2.1);
-  ok((await txt(page, '#mt-me')) === '2' && (await txt(page, '#mt-them')) === '0', 'two points for the takedown', await txt(page, '#matchbar'));
-  await sleep(400);
-  await shot(page, 's6-match-guard');
-  await round(T, page, 'r', click);
-  await T.adv(page, 3.5);
-  ok((await txt(page, '#mt-me')) === '5' && (await txt(page, '#mt-pos')) === '사이드 컨트롤 · 내가 위', 'guard pass: five points, side control', await txt(page, '#matchbar'));
-  await page.evaluate(() => { const g = window.__bjj; g.cam.yaw = Math.PI * 0.8; });
-  await sleep(400);
-  await shot(page, 's6-match-side');
-  await round(T, page, 'r', click);
-  await T.adv(page, 3.5);
-  ok((await txt(page, '#mt-me')) === '9' && (await txt(page, '#mt-pos')) === '마운트 · 내가 위', 'mount: nine points', await txt(page, '#matchbar'));
-  await sleep(400);
-  await shot(page, 's6-match-mount');
-  // being swept, seen from underneath
-  await page.evaluate(() => { window.__bjj.sim.npcPick = () => 'p'; });
-  await round(T, page, 'r', click);
-  await T.adv(page, 3.5);
-  ok((await txt(page, '#mt-them')) === '2' && (await txt(page, '#mt-pos')) === '가드 · 상대가 위', 'swept: two points to the partner', await txt(page, '#matchbar'));
-  await sleep(400);
-  await shot(page, 's6-match-under');
-  await page.evaluate(() => { window.__bjj.sim.npcPick = () => 's'; });
-  await round(T, page, 'r', click); await T.adv(page, 3.5);
-  await round(T, page, 'r', click); await T.adv(page, 3.5);
-  await round(T, page, 'r', click); await T.adv(page, 3.5);
-  ok((await txt(page, '#mt-me')) === '18' && (await txt(page, '#mt-pos')) === '마운트 · 내가 위', 'sweep, pass, mount: 18 : 2', await txt(page, '#matchbar'));
-  // the finish
-  await round(T, page, 'r', click);
-  await T.adv(page, 1.5);
-  ok(await page.evaluate(() => window.__bjj.sim.p.mode === 'bout' && window.__bjj.sim.p.bout.ground), 'the next win from the mount goes for the finish');
-  ok(!(await vis(page, '#rps')) && (await txt(page, '#mt-pos')) === '서브미션!', 'the bar says so', await txt(page, '#mt-pos'));
-  await T.adv(page, 0.5);
-  await sleep(300);
-  await shot(page, 's6-match-sub-start');
-  await T.adv(page, 0.7);
-  ok(await vis(page, '#mash') && (await txt(page, '#mash-text')) === '연타해서 조이세요!' && (await txt(page, '#b-main')) === '연타!', 'the struggle strip appears, with its own labels', `${await txt(page, '#mash')}`);
-  ok((await txt(page, '#mash-l')) === '탈출' && (await txt(page, '#mash-r')) === '탭' && await vis(page, '#mash-timewrap'), 'escape on one end, tap on the other, time bar below');
-  ok(apart(await rect(page, '#mash'), await rect(page, '#matchbar')), 'strip and bar do not cover each other');
-  await page.click('#b-main');
-  await T.adv(page, 0.8);
-  await sleep(300);
-  await shot(page, 's6-match-sub');
-  await T.adv(page, 2.2);
-  ok(await until(page, () => /탭!/.test(document.querySelector('#flash').textContent)), 'the tap is flashed');
-  await T.adv(page, 5.2);
-  ok((await txt(page, '#mt-pos')) === '승리' && /한 판 종료 · 나 승 ·/.test(await toasts(page)), 'the match ends with the tap', `${await txt(page, '#mt-pos')} / ${await toasts(page)}`);
-  ok((await txt(page, '#flash')) === '승리!', 'and the win is flashed');
-  await T.adv(page, 0.8);
-  await sleep(400);
-  await shot(page, 's6-match-win');
-  await T.adv(page, 4.2);
-  ok(!(await vis(page, '#matchbar')) && !(await vis(page, '#rps')) && await page.evaluate(() => window.__bjj.sim.p.mode === 'free'), 'afterwards the bar is gone');
-  ok(!(await vis(page, '#streak')) || /연승/.test(await txt(page, '#streak')), 'streak badge is consistent');
-
   /* the race */
   await page.evaluate(() => { const g = window.__bjj; const R = g.world.race; g.sim.p.x = R.x0 + 0.9; g.sim.p.z = (R.z0 + R.z1) / 2; g.sim.p.yaw = -Math.PI / 2; g.cam.yaw = Math.PI; g.cam.pitch = 0.5; g.cam.dist = 6.5; });
   await T.adv(page, 0.3);
@@ -256,22 +158,21 @@ for (const [name, w, h, deg] of [['land', 640, 360, 0], ['small', 568, 320, 0], 
     if (m) { x += m.m41; y += m.m42; }
     return { l: x, t: y, r: x + e.offsetWidth, b: y + e.offsetHeight };
   }, sel);
-  await press('.pb[data-pop="tech"]');
-  await press('#pop-tech button[data-act="match"]');
-  ok(await page.evaluate(() => { const d = window.__bjj.sim.p.duel; return !!d && d.kind === 'match'; }), `${name}: a match starts from the list`);
+  await press('#b-spar');
+  ok(await page.evaluate(() => { const d = window.__bjj.sim.p.duel; return !!d && d.kind === 'spar'; }), `${name}: sparring starts from its button`);
   await T.adv(page, 2.6); // the bow, and the picture has finished lifting
   let bar = await box('#matchbar');
   const panel = await box('#rps');
-  ok(inside(bar, W, H) && inside(panel, W, H), `${name}: bar and hands are on the screen`, JSON.stringify({ bar, panel }));
-  ok(apart(bar, panel), `${name}: the bar is not under the hands`, JSON.stringify({ bar, panel }));
-  const techB = await box('.pb[data-pop="tech"]');
+  ok(inside(bar, W, H) && inside(panel, W, H), `${name}: bar and strip are on the screen`, JSON.stringify({ bar, panel }));
+  ok(apart(bar, panel), `${name}: the bar is not under the strip`, JSON.stringify({ bar, panel }));
+  const sparB = await box('#b-spar');
   const baseB = await box('#stick-base');
   const sayB = await box('.pb[data-pop="say"]');
-  ok(apart(panel, techB) && apart(panel, sayB) && (!baseB || apart(panel, baseB)) && panel.b - panel.t < 118, `${name}: the hands strip fits between the stick and the buttons`, JSON.stringify({ panel, techB, sayB, baseB }));
-  const oneLine = await page.evaluate(() => { const e = document.querySelector('#rps-status'); return e.getClientRects().length === 1 && e.offsetHeight < 24; });
-  ok(oneLine, `${name}: its line of text does not wrap`);
+  ok(apart(panel, sparB) && apart(panel, sayB) && (!baseB || apart(panel, baseB)) && panel.b - panel.t < 128, `${name}: the strip fits between the stick and the buttons`, JSON.stringify({ panel, sparB, sayB, baseB }));
   const hands = await page.evaluate(() => Array.from(document.querySelectorAll('.hand')).map((b) => [b.offsetWidth, b.offsetHeight]));
   ok(hands.every(([hw, hh]) => hw >= 52 && hh >= 44), `${name}: each hand is big enough for a thumb`, JSON.stringify(hands));
+  const cyc = await page.evaluate(() => { const b = document.querySelector('#rps-cycle'); return [b.offsetWidth, b.offsetHeight, b.textContent, document.querySelector('#rps-techs').offsetHeight]; });
+  ok(cyc[0] >= 90 && cyc[1] >= 26 && cyc[2] === '기술 · 암바 ⟳' && cyc[3] === 0, `${name}: one button steps through the techniques`, JSON.stringify(cyc));
   const lifted = await page.evaluate(() => {
     const g = window.__bjj;
     const v = new THREE.Vector3(g.sim.p.x, 0.04, g.sim.p.z).project(g.camera);
@@ -286,23 +187,11 @@ for (const [name, w, h, deg] of [['land', 640, 360, 0], ['small', 568, 320, 0], 
   const main = await box('#b-main');
   const base = await box('#stick-base');
   ok(apart(bar, main) && (!base || apart(bar, base)), `${name}: the bar keeps clear of the big button and the stick`, JSON.stringify({ bar, main, base }));
-  bar = await box('#matchbar');
-  ok(bar && bar.b - bar.t < 36 && (await txt(page, '#mt-short')) === '가드' && await page.evaluate(() => document.querySelector('#matchbar').dataset.top === 'me' && getComputedStyle(document.querySelector('#mt-pos')).display === 'none'), `${name}: the bar is one compact row with a short position name`, JSON.stringify(bar));
-  await sleep(250);
-  await shot(page, `s6-${name}-guard`, deg);
-  for (let i = 0; i < 2; i++) { await round(T, page, 'r', hand); await T.adv(page, 3.5); }
-  await round(T, page, 'r', hand);
-  await T.adv(page, 1.4);
-  ok(await page.evaluate(() => window.__bjj.sim.p.mode === 'bout'), `${name}: mount and finish`);
-  await T.adv(page, 1.2);
-  const mash = await box('#mash');
-  bar = await box('#matchbar');
-  ok(inside(mash, W, H) && apart(mash, bar) && apart(mash, main), `${name}: the struggle strip sits clear of the bar and the big button`, JSON.stringify({ mash, bar, main }));
+  ok(bar && bar.b - bar.t < 36 && (await txt(page, '#mt-short')) === '6판 4선승' && await page.evaluate(() => getComputedStyle(document.querySelector('#mt-pos')).display === 'none'), `${name}: the bar is one compact row with the rule`, JSON.stringify(bar));
+  ok(await page.evaluate(() => window.__bjj.sim.p.mode === 'bout'), `${name}: the won throw puts the technique on`);
   await sleep(250);
   await shot(page, `s6-${name}-sub`, deg);
   await page.evaluate(() => window.__bjj.sim.p.bout && (window.__bjj.sim.p.bout.cancel = true));
-  await T.adv(page, 0.2);
-  await page.evaluate(() => window.__bjj.sim.cancelDuel());
   await T.adv(page, 2.5);
   // the race strip
   await page.evaluate(() => { const g = window.__bjj; const R = g.world.race; g.sim.p.x = R.x0 + 0.9; g.sim.p.z = (R.z0 + R.z1) / 2; g.cam.yaw = Math.PI; g.cam.pitch = 0.5; g.cam.dist = 6.5; });
@@ -358,7 +247,7 @@ for (const [name, w, h, deg] of [['land', 640, 360, 0], ['small', 568, 320, 0], 
   ok(await until(page, () => window.__saved.length === 1, null, 5000), 'framed page: pressing save hands the file to the frame');
   const sv = await page.evaluate(() => window.__saved[0]);
   ok(/^jiujitsu-\d{8}-\d{4}\.png$/.test(sv.name) && sv.size > 20000 && sv.type === 'image/png', 'framed page: a PNG with a file name', JSON.stringify(sv));
-  ok(/사진을 저장했습니다/.test(await toasts(page)), 'framed page: and says so');
+  ok(/저장했습니다/.test(await toasts(page)), 'framed page: and says so');
   await page.close();
 }
 {

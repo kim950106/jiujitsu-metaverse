@@ -138,13 +138,13 @@ const drag = async (page, map, from, to) => {
     await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
     await sleep(60);
   };
-  await hit('.pb[data-pop="tech"]');
-  await until(page, () => !document.querySelector('#pop-tech').hidden);
-  await hit('#pop-tech button[data-act="guil"]');
+  await hit('#b-spar');
   await until(page, () => !!window.__bjj.sim.p.duel);
   const duel = await page.evaluate(() => { const d = window.__bjj.sim.p.duel; return d ? d.kind : null; });
-  ok(duel === 'guil', 'tapping 기술 and then 길로틴 starts that duel', String(duel));
-  await page.evaluate(() => window.__adv(0.4));
+  ok(duel === 'spar', 'tapping 스파링 beside the partner starts sparring', String(duel));
+  await page.evaluate(() => window.__adv(2.0));
+  await hit('#rps-cycle');
+  ok(await page.evaluate(() => window.__bjj.sim.tech === 'guil'), 'the technique button on the strip is hit where it is drawn');
   await sleep(500);
   await shot(page, 'land-2-rps', 90);
   await page.evaluate(() => { window.__bjj.sim.cancelDuel(); window.__adv(1.2); });
@@ -289,11 +289,14 @@ const drag = async (page, map, from, to) => {
   });
   const d = await state(desk);
   ok(!d.rot && !d.land, 'a desktop is not turned');
-  for (const [key, kind] of [['KeyT', 'guil'], ['KeyF', 'omo'], ['KeyG', 'rnc'], ['Digit9', 'rnc']]) {
+  await desk.keyboard.press('KeyF');
+  ok(await desk.evaluate(() => { const dd = window.__bjj.sim.p.duel; window.__adv(1.8); return !!dd && dd.kind === 'spar'; }), 'key F starts sparring');
+  for (const [key, kind] of [['KeyQ', 'ankle'], ['KeyE', 'guil'], ['KeyS', 'tri'], ['KeyD', 'kim']]) {
     await desk.keyboard.press(key);
-    const k = await desk.evaluate(() => { const g = window.__bjj; const dd = g.sim.p.duel; const r = dd ? dd.kind : null; g.sim.cancelDuel(); window.__adv(1.2); return r; });
-    ok(k === kind, `key ${key} starts ${kind}`, String(k));
+    const k = await desk.evaluate(() => window.__bjj.sim.tech);
+    ok(k === kind, `in sparring, key ${key} chooses ${kind}`, String(k));
   }
+  await desk.evaluate(() => { window.__bjj.sim.cancelDuel(); window.__adv(1.2); });
   await sleep(600);
   await shot(desk, 'land-9-desk');
   await desk.close();

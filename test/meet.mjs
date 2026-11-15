@@ -146,183 +146,97 @@ try {
   await shot(B, 'meet-b-sees-a');
   ok('positions follow on both screens', `${ms} ms`);
 
-  /* 6. rock-paper-scissors, then the technique, played on both screens */
+  /* 6. sparring between two devices: asked, declined, asked again, accepted, played to the end */
   await adv(A, 2); await adv(B, 2);
-  const started = await A.page.evaluate(() => { const g = window.__bjj; g.sim._cool = 0; return g.sim.challenge('arm'); });
-  assert.ok(started, 'A could challenge B');
-  await wait(B, () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'pick'; }, 'B is challenged');
-  await sleep(700);
-  await shot(B, 'meet-b-challenged');
-  await wait(A, () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'pick'; }, 'A sees the answer');
-  await A.page.evaluate(() => window.__bjj.sim.pick('r'));
-  await B.page.evaluate(() => window.__bjj.sim.pick('s'));
-  await wait(A, () => window.__bjj.sim.p.mode === 'bout', 'A in the technique');
-  await wait(B, () => window.__bjj.sim.p.mode === 'bout', 'B in the technique');
-  const roles = [await A.page.evaluate(() => window.__bjj.sim.p.bout.iWin), await B.page.evaluate(() => window.__bjj.sim.p.bout.iWin)];
-  assert.deepEqual(roles, [true, false]);
-  await wait(A, () => { const bt = window.__bjj.sim.p.bout; return !bt || bt.t > 3.2; }, 'hold reached');
-  await sleep(500);
+  const duelOf = (d) => d.page.evaluate(() => { const x = window.__bjj.sim.p.duel; return x ? { phase: x.phase, round: x.round, w: x.S.w, n: x.S.n, end: x.S.end, rule: x.S.text, me: x.me } : null; });
+  assert.ok(await A.page.evaluate(() => { const g = window.__bjj; g.sim._cool = 0; return g.sim.challenge(); }), 'A could ask B to spar');
+  assert.equal((await duelOf(A)).phase, 'wait', 'A waits for an answer');
+  await wait(B, () => !!window.__bjj.sim.ask && !document.querySelector('#sparask').hidden, 'B is asked');
+  assert.equal(await B.page.evaluate(() => window.__bjj.sim.p.duel), null, 'B is not in it before saying yes');
+  assert.equal(await text(B, '#sparask-text'), '현철 님이 스파링을 신청했습니다 · 5판 3선승', 'the request names who asks and the lower belt\'s rule');
+  await sleep(400);
+  await shot(B, 'meet-b-asked');
+  await shot(A, 'meet-a-waiting');
+  await B.page.evaluate(() => document.querySelector('#sparask-no').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', pointerId: 9, button: 0 })));
+  await wait(A, () => !window.__bjj.sim.p.duel && window.__toastLog.some((t) => t.includes('민수 님이 스파링을 사양했습니다')), 'A is told that B said no');
+  ok('a request to spar can be declined', 'A was told');
+  await adv(A, 5); await adv(B, 5); // the no is taken down, the cool-down passes
+  await wait(A, () => { const v = window.__bjj.net.list[0]; return !!v && !v.busy && !v.rj; }, 'A sees B free again', 15000);
+  assert.ok(await A.page.evaluate(() => { const g = window.__bjj; g.sim._cool = 0; return g.sim.challenge(); }), 'A could ask again');
+  await wait(B, () => !!window.__bjj.sim.ask, 'B is asked again');
+  await B.page.evaluate(() => document.querySelector('#sparask-yes').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', pointerId: 9, button: 0 })));
+  await wait(B, () => { const d = window.__bjj.sim.p.duel; return !!d && d.me === 'B'; }, 'B is in');
+  await wait(A, () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase !== 'wait'; }, 'A hears the yes');
+  const canPick = () => { const d = window.__bjj.sim.p.duel; return !!d && window.__bjj.sim.p.mode === 'duel' && d.phase === 'pick' && !d.pick; };
+  // one round: both throw, the technique runs on both screens, both come back to their feet
+  const play = async (handA, techA, handB, techB, label) => {
+    for (let i = 0; i < 40 && !(await A.page.evaluate(canPick) && await B.page.evaluate(canPick)); i++) { await adv(A, 0.5); await adv(B, 0.5); await sleep(150); }
+    assert.ok(await A.page.evaluate(canPick) && await B.page.evaluate(canPick), `${label}: both can throw`);
+    await A.page.evaluate((h, k) => { const g = window.__bjj; g.sim.setTech(k); g.sim.pick(h); }, handA, techA);
+    await B.page.evaluate((h, k) => { const g = window.__bjj; g.sim.setTech(k); g.sim.pick(h); }, handB, techB);
+    const revealed = () => { const d = window.__bjj.sim.p.duel; return !!d && (d.phase === 'reveal' || d.phase === 'sub'); };
+    await wait(A, revealed, `${label}: A sees B's hand`);
+    await wait(B, revealed, `${label}: B sees A's hand`);
+    await adv(A, 1.5); await adv(B, 1.5);
+    await wait(A, () => window.__bjj.sim.p.mode === 'bout', `${label}: A in the technique`);
+    await wait(B, () => window.__bjj.sim.p.mode === 'bout', `${label}: B in the technique`);
+    return [await A.page.evaluate(() => { const b = window.__bjj.sim.p.bout; return [b.kind, b.iWin]; }), await B.page.evaluate(() => { const b = window.__bjj.sim.p.bout; return [b.kind, b.iWin]; })];
+  };
+  const finish = async () => { await adv(A, 9); await adv(B, 9); await sleep(300); };
+  let r = await play('r', 'arm', 's', 'kim', 'round 1');
+  assert.deepEqual(r, [['arm', true], ['arm', false]], 'round 1: A wins and puts on the armbar A chose, on both screens');
+  await adv(A, 3.4); await adv(B, 3.4);
+  await sleep(600);
   await shot(A, 'meet-a-armbar');
   await shot(B, 'meet-b-armbar');
-  await wait(A, () => window.__bjj.sim.p.mode === 'free', 'A free again', 40000);
-  await wait(B, () => window.__bjj.sim.p.mode === 'free', 'B free again', 40000);
-  ok('challenge, rock-paper-scissors and armbar ran on both devices', 'A won with rock and attacked');
-
-  /* 6b. a second round with one of the newer techniques; this time B wins and takes A's back */
-  await adv(A, 3); await adv(B, 3);
-  // each has to hear that the other is free again before a new challenge can be made
-  await wait(A, () => { const v = window.__bjj.net.list[0]; return !!v && !v.busy && !v.bout; }, 'A sees B free again', 8000);
-  await wait(B, () => { const v = window.__bjj.net.list[0]; return !!v && !v.busy && !v.bout; }, 'B sees A free again', 8000);
-  const again = await A.page.evaluate(() => {
-    const g = window.__bjj;
-    g.sim._cool = 0;
-    if (g.sim.challenge('rnc')) return true;
-    const p = g.sim.p;
-    const v = g.net.list[0];
-    return { mode: p.mode, onMat: p.onMat, busy: g.sim.busy, me: [p.x, p.z, p.y], them: v ? [v.x, v.z, v.y, v.busy, !!v.bout, v.anim] : null, toast: Array.from(document.querySelectorAll('.toast')).map((t) => t.textContent) };
-  });
-  assert.ok(again === true, `A could challenge B to a back choke: ${JSON.stringify(again)}`);
-  await wait(B, () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'pick' && d.kind === 'rnc'; }, 'B is challenged to the back choke');
-  await wait(A, () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'pick'; }, 'A sees the answer again');
-  await A.page.evaluate(() => window.__bjj.sim.pick('s'));
-  await B.page.evaluate(() => window.__bjj.sim.pick('r'));
-  await wait(A, () => window.__bjj.sim.p.mode === 'bout', 'A in the back choke');
-  await wait(B, () => window.__bjj.sim.p.mode === 'bout', 'B in the back choke');
-  await wait(A, () => { const bt = window.__bjj.sim.p.bout; return !bt || bt.t > 3.0; }, 'back choke held on A');
-  await wait(B, () => { const bt = window.__bjj.sim.p.bout; return !bt || bt.t > 3.0; }, 'back choke held on B');
-  // on both screens: same technique, B behind A, both facing the same way, both seated
-  const held = (me) => me.page.evaluate(() => {
-    const g = window.__bjj;
-    const b = g.sim.p.bout;
-    if (!b) return null;
-    const turn = (x) => Math.abs(Math.atan2(Math.sin(x), Math.cos(x)));
-    const ux = Math.sin(b.a.yaw);
-    const uz = Math.cos(b.a.yaw);
-    return {
-      kind: b.kind, iWin: b.iWin, same: turn(b.a.yaw - b.d.yaw) < 0.2, ahead: (b.d.x - b.a.x) * ux + (b.d.z - b.a.z) * uz,
-      low: b.a.char.C.drop < -0.25 && b.d.char.C.drop < -0.25, reach: b.a.char.C.aLs,
-    };
-  });
-  const hA = await held(A);
-  const hB = await held(B);
-  assert.ok(hA && hB, 'both still in the hold');
-  assert.deepEqual([hA.kind, hA.iWin, hB.kind, hB.iWin], ['rnc', false, 'rnc', true]);
-  for (const h of [hA, hB]) assert.ok(h.same && h.ahead > 0.1 && h.low && h.reach > 1.6, `hold looks the same on both screens: ${JSON.stringify(h)}`);
+  await finish();
+  assert.deepEqual([(await duelOf(A)).w, (await duelOf(B)).w], [{ A: 1, B: 0 }, { A: 1, B: 0 }], 'both count 1 : 0');
+  r = await play('r', 'arm', 'p', 'rnc', 'round 2');
+  assert.deepEqual(r, [['rnc', false], ['rnc', true]], 'round 2: B wins and takes the back, as B chose');
+  // on both screens: B behind A, both facing the same way
+  await adv(A, 3.6); await adv(B, 3.6);
+  const sameWay = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const poseA = await A.page.evaluate(() => { const g = window.__bjj; const v = g.net.list[0]; return { my: g.sim.p.yaw, their: v.yaw }; });
+  const poseB = await B.page.evaluate(() => { const g = window.__bjj; const v = g.net.list[0]; return { my: g.sim.p.yaw, their: v.yaw }; });
+  assert.ok(sameWay(poseA.my, poseA.their) < 0.3 && sameWay(poseB.my, poseB.their) < 0.3, `the back choke looks the same on both: ${JSON.stringify([poseA, poseB])}`);
+  await sleep(600);
+  await shot(A, 'meet-a-choked');
+  await shot(B, 'meet-b-choke');
+  await finish();
+  // a drawn throw is thrown again
+  for (let i = 0; i < 40 && !(await A.page.evaluate(canPick) && await B.page.evaluate(canPick)); i++) { await adv(A, 0.5); await adv(B, 0.5); await sleep(150); }
+  const before = (await duelOf(A)).round;
+  await A.page.evaluate(() => window.__bjj.sim.pick('p'));
+  await B.page.evaluate(() => window.__bjj.sim.pick('p'));
+  await wait(A, () => window.__bjj.sim.p.duel.phase === 'reveal', 'A sees the draw');
+  await wait(B, () => window.__bjj.sim.p.duel.phase === 'reveal', 'B sees the draw');
+  await adv(A, 1.5); await adv(B, 1.5);
+  assert.deepEqual([(await duelOf(A)).round, (await duelOf(B)).round, (await duelOf(A)).n], [before + 1, before + 1, 2], 'a draw is thrown again and is not a round');
+  r = await play('s', 'tri', 'p', 'arm', 'round 3');
+  assert.deepEqual(r, [['tri', true], ['tri', false]]);
+  await finish();
+  r = await play('s', 'guil', 'p', 'arm', 'round 4');
+  assert.deepEqual(r, [['guil', true], ['guil', false]]);
+  await adv(A, 3.4); await adv(B, 3.4);
   await sleep(500);
-  await shot(A, 'meet-a-rnc');
-  await shot(B, 'meet-b-rnc');
-  await wait(A, () => window.__bjj.sim.p.mode === 'free', 'A free after the back choke', 40000);
-  await wait(B, () => window.__bjj.sim.p.mode === 'free', 'B free after the back choke', 40000);
-  ok('a back choke between two devices looks the same on both', `B won with rock; defender ${hA.ahead.toFixed(2)} m in front on A, ${hB.ahead.toFixed(2)} m on B`);
-
-  /* 6c. the struggle: the one who is held hammers the button, gets out, and both screens agree */
-  await adv(A, 3); await adv(B, 3);
-  await wait(A, () => { const v = window.__bjj.net.list[0]; return !!v && !v.busy && !v.bout; }, 'A sees B free once more', 8000);
-  await wait(B, () => { const v = window.__bjj.net.list[0]; return !!v && !v.busy && !v.bout; }, 'B sees A free once more', 8000);
-  assert.ok(await A.page.evaluate(() => { const g = window.__bjj; g.sim._cool = 0; return g.sim.challenge('guil'); }), 'A could challenge B to a guillotine');
-  await wait(B, () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'pick' && d.kind === 'guil'; }, 'B is challenged to the guillotine');
-  await wait(A, () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'pick'; }, 'A sees the answer a third time');
-  await A.page.evaluate(() => window.__bjj.sim.pick('r'));
-  await B.page.evaluate(() => window.__bjj.sim.pick('s'));
-  await wait(B, () => { const b = window.__bjj.sim.p.bout; return !!b && b.open; }, 'the struggle opens on B', 40000);
-  assert.deepEqual(await B.page.evaluate(() => { const b = window.__bjj.sim.p.bout; return [b.iWin, typeof b.judge]; }), [false, 'function'], 'B is held and decides the struggle');
-  assert.equal(await A.page.evaluate(() => { const b = window.__bjj.sim.p.bout; return b ? typeof b.judge : 'gone'; }), 'object', 'A does not decide it');
-  let pressed = 0;
-  for (let i = 0; i < 40 && pressed < 6; i++) {
-    if (await B.page.evaluate(() => window.__bjj.sim.mash())) pressed++;
-    await sleep(120);
-  }
-  assert.ok(pressed >= 5, `B got its presses in (${pressed})`);
-  await A.page.evaluate(() => window.__bjj.sim.mash());
-  await wait(B, () => { const b = window.__bjj.sim.p.bout; return !b || b.outcome !== 0; }, 'B decides', 40000);
-  await wait(A, () => { const b = window.__bjj.sim.p.bout; return !b || b.outcome !== 0; }, 'A hears how it ended', 40000);
-  const endA = await A.page.evaluate(() => { const b = window.__bjj.sim.p.bout; return b ? { o: b.outcome, m: b.m, waited: b.waited } : null; });
-  const endB = await B.page.evaluate(() => { const b = window.__bjj.sim.p.bout; return b ? { o: b.outcome, m: b.m } : null; });
-  assert.ok(endA && endB, 'both still in the technique when it was decided');
-  assert.deepEqual([endA.o, endB.o], [1, 1], `both screens say escape: ${JSON.stringify([endA, endB])}`);
-  assert.ok(endA.m.d >= pressed - 1 && endB.m.a >= 1, `each saw the other's presses: ${JSON.stringify([endA.m, endB.m])}`);
-  await wait(A, () => Array.from(document.querySelectorAll('#toasts > *')).some((t) => /탈출! 민수 님이 길로틴에서/.test(t.textContent)), 'A is told of the escape', 20000);
-  await sleep(300);
-  await shot(A, 'meet-a-escape');
-  await wait(A, () => window.__bjj.sim.p.mode === 'free', 'A free after the escape', 40000);
-  await wait(B, () => window.__bjj.sim.p.mode === 'free', 'B free after the escape', 40000);
-  ok('the one held hammered out of a guillotine, and both devices agreed', `B pressed ${pressed}, A saw ${endA.m.d}; A waited ${endA.waited.toFixed(2)} s for word`);
-
-  /* 6d. a points match: positions and points are worked out on each device and must agree */
-  await adv(A, 3); await adv(B, 3);
-  await wait(A, () => { const v = window.__bjj.net.list[0]; return !!v && !v.busy && !v.bout; }, 'A sees B free before the match', 8000);
-  await wait(B, () => { const v = window.__bjj.net.list[0]; return !!v && !v.busy && !v.bout; }, 'B sees A free before the match', 8000);
-  assert.ok(await A.page.evaluate(() => { const g = window.__bjj; g.sim._cool = 0; return g.sim.challenge('match'); }), 'A could offer B a match');
-  await wait(B, () => { const d = window.__bjj.sim.p.duel; return !!d && d.kind === 'match' && d.me === 'B'; }, 'B is offered the match');
-  const canPick = () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'pick' && !d.pick; };
-  const hands = async (ha, hb, label) => {
-    await wait(A, canPick, `A can throw a hand (${label})`, 60000);
-    await wait(B, canPick, `B can throw a hand (${label})`, 60000);
-    await A.page.evaluate((h) => window.__bjj.sim.pick(h), ha);
-    await B.page.evaluate((h) => window.__bjj.sim.pick(h), hb);
-  };
-  const state = (d) => d.page.evaluate(() => {
-    const g = window.__bjj;
-    const du = g.sim.p.duel;
-    const v = g.net.list[0];
-    return du ? { me: du.me, round: du.round, phase: du.phase, pos: du.M.pos, top: du.M.top, sc: [du.M.sc.A, du.M.sc.B], left: Math.round(du.M.left), end: du.M.end, mine: g.sim.char.anim, theirs: v && v.ctl ? v.ctl.anim : null } : null;
-  });
-  const settled = (round) => [`round ${round} played out`, (r) => { const d = window.__bjj.sim.p.duel; return !!d && d.round === r && d.phase === 'pick'; }];
-  const total = await A.page.evaluate(() => window.__bjj.sim.p.duel.M.total);
-  assert.equal(total, 60, 'blue against white: the white belt\'s five minutes, scaled to 60 s');
-  await hands('r', 's', 'round 1');
-  await wait(A, settled(2)[1], `A: ${settled(2)[0]}`, 60000, 2);
-  await wait(B, settled(2)[1], `B: ${settled(2)[0]}`, 60000, 2);
-  let mA = await state(A);
-  let mB = await state(B);
-  assert.deepEqual([mA.pos, mA.top, mA.sc, mB.pos, mB.top, mB.sc], ['guard', 'A', [2, 0], 'guard', 'A', [2, 0]], `takedown agreed: ${JSON.stringify([mA, mB])}`);
-  assert.deepEqual([mA.mine, mA.theirs, mB.mine, mB.theirs], ['guardTop', 'guardBottom', 'guardBottom', 'guardTop'], 'each device shows itself and the other in the right place');
-  assert.equal(await text(A, '#mt-me'), '2');
-  assert.equal(await text(B, '#mt-them'), '2');
-  await sleep(600);
-  await shot(A, 'meet-a-match-guard');
-  await shot(B, 'meet-b-match-guard');
-  await hands('s', 'r', 'round 2'); // B sweeps
-  await wait(A, settled(3)[1], 'A: round 2 played out', 60000, 3);
-  await wait(B, settled(3)[1], 'B: round 2 played out', 60000, 3);
-  mA = await state(A); mB = await state(B);
-  assert.deepEqual([mA.top, mA.sc, mB.top, mB.sc], ['B', [2, 2], 'B', [2, 2]], `sweep agreed: ${JSON.stringify([mA, mB])}`);
-  await hands('s', 'r', 'round 3');
-  await wait(A, settled(4)[1], 'A: round 3 played out', 60000, 4);
-  await wait(B, settled(4)[1], 'B: round 3 played out', 60000, 4);
-  await hands('s', 'r', 'round 4');
-  await wait(A, settled(5)[1], 'A: round 4 played out', 60000, 5);
-  await wait(B, settled(5)[1], 'B: round 4 played out', 60000, 5);
-  mA = await state(A); mB = await state(B);
-  assert.deepEqual([mA.pos, mA.top, mA.sc, mB.pos, mB.top, mB.sc], ['mount', 'B', [2, 9], 'mount', 'B', [2, 9]], `pass and mount agreed: ${JSON.stringify([mA, mB])}`);
-  assert.ok(Math.abs(mA.left - mB.left) <= 2, `the clocks agree (${mA.left} s and ${mB.left} s)`);
-  await sleep(600);
-  await shot(A, 'meet-a-match-mounted');
-  await shot(B, 'meet-b-match-mount');
-  // B goes for the finish from the mount; A, underneath, decides the struggle and does not get out
-  await hands('s', 'r', 'round 5');
-  await wait(A, () => window.__bjj.sim.p.mode === 'bout', 'A is in the finish', 40000);
-  await wait(B, () => window.__bjj.sim.p.mode === 'bout', 'B is in the finish', 40000);
-  const sub = [await A.page.evaluate(() => { const b = window.__bjj.sim.p.bout; return [b.id, b.kind, b.iWin, typeof b.judge, b.ground]; }), await B.page.evaluate(() => { const b = window.__bjj.sim.p.bout; return [b.id, b.kind, b.iWin, typeof b.judge, b.ground]; })];
-  assert.deepEqual([sub[0][0], sub[0][1], sub[0][4]], [sub[1][0], sub[1][1], sub[1][4]], `both devices chose the same finish: ${JSON.stringify(sub)}`);
-  assert.deepEqual([sub[0][2], sub[0][3], sub[1][2], sub[1][3]], [false, 'function', true, 'object'], 'the one underneath decides');
-  await wait(B, () => { const b = window.__bjj.sim.p.bout; return !b || b.t > 3.4; }, 'the hold is on', 40000);
-  await sleep(400);
-  await shot(B, 'meet-b-match-finish');
+  await shot(B, 'meet-b-guillotined');
   const ended = () => { const d = window.__bjj.sim.p.duel; return !!d && d.phase === 'end'; };
-  await wait(A, ended, 'the match ends on A', 60000);
-  await wait(B, ended, 'the match ends on B', 60000);
-  mA = await state(A); mB = await state(B);
-  assert.deepEqual([mA.end, mB.end], [2, 2], `both say the challenged side won: ${JSON.stringify([mA, mB])}`);
-  await wait(A, () => Array.from(document.querySelectorAll('#toasts > *')).some((t) => /한 판 종료 · 민수 승 · /.test(t.textContent)), 'A is told who won', 10000);
-  await wait(B, () => Array.from(document.querySelectorAll('#toasts > *')).some((t) => /한 판 종료 · 민수 승 · /.test(t.textContent)), 'B is told who won', 10000);
-  assert.equal(await text(A, '#mt-short'), '패배');
-  assert.equal(await text(B, '#mt-short'), '승리');
-  await sleep(300);
-  await shot(B, 'meet-b-match-win');
-  await wait(A, () => window.__bjj.sim.p.mode === 'free', 'A free after the match', 40000);
-  await wait(B, () => window.__bjj.sim.p.mode === 'free', 'B free after the match', 40000);
-  ok('a points match between two devices: takedown, sweep, pass, mount and a finish agreed on both', `${sub[0][1]} from the mount; ${mA.left} s left on A, ${mB.left} s on B`);
+  for (const d of [A, B]) for (let i = 0; i < 40 && !(await d.page.evaluate(ended)); i++) await adv(d, 0.3);
+  await wait(A, ended, 'the sparring ends on A', 20000);
+  await wait(B, ended, 'the sparring ends on B', 20000);
+  const eA = await duelOf(A);
+  const eB = await duelOf(B);
+  assert.deepEqual([eA.end, eB.end, eA.w, eB.w], [1, 1, { A: 3, B: 1 }, { A: 3, B: 1 }], `both say A won 3 : 1: ${JSON.stringify([eA, eB])}`);
+  assert.equal(await text(A, '#mt-clock'), '승리');
+  assert.equal(await text(B, '#mt-clock'), '패배');
+  await sleep(500);
+  await shot(A, 'meet-a-spar-win');
+  await shot(B, 'meet-b-spar-lost');
+  await adv(A, 5); await adv(B, 5);
+  await wait(A, () => window.__bjj.sim.p.mode === 'free', 'A free after the sparring', 20000);
+  await wait(B, () => window.__bjj.sim.p.mode === 'free', 'B free after the sparring', 20000);
+  assert.ok(!(await B.page.evaluate(() => !!window.__bjj.sim.ask)), 'the finished request does not come back to B');
+  ok('sparring between two devices: asked, accepted, four rounds and a draw agreed on both', `${eA.rule}, 3 : 1`);
 
   /* 6e. the shrimp race: one starts, the other standing at the start is taken along */
   await adv(A, 2); await adv(B, 2);
@@ -382,9 +296,9 @@ try {
   /* 7. one relay disappears mid-session */
   await brokers[0].down();
   await sleep(300);
-  await view(A, { x: -5.0, z: -2.5 });
+  await view(A, { x: -5.0, z: -4.6 });
   await adv(A, 0.3);
-  ms = await wait(B, () => { const v = window.__bjj.net.list[0]; return v && Math.abs(v.st.x + 5.0) < 0.05 && Math.abs(v.st.z + 2.5) < 0.05; }, 'B still follows A after a relay died', 15000);
+  ms = await wait(B, () => { const v = window.__bjj.net.list[0]; return v && Math.abs(v.st.x + 5.0) < 0.05 && Math.abs(v.st.z + 4.6) < 0.05; }, 'B still follows A after a relay died', 15000);
   await wait(A, () => window.__bjj.net.room.info().up === 1, 'A noticed the dead relay', 15000);
   await A.page.evaluate(() => document.querySelector('#people-btn').click());
   await wait(A, () => /1\/2/.test(document.querySelector('#people-note').textContent), 'panel shows 1/2', 8000);
