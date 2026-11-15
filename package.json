@@ -1,12 +1,12 @@
 {
   "name": "jiujitsu-metaverse",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "띠를 매고 도장과 대회장을 걸어 다니는 주짓수 메타버스 (비공식 팬 프로젝트)",
   "type": "module",
   "scripts": {
     "build": "sh build.sh",
-    "test": "node test/smoke.mjs && node test/match.mjs && node test/relay.mjs && node test/guest.mjs",
+    "test": "node test/smoke.mjs && node test/spar.mjs && node test/relay.mjs && node test/guest.mjs",
     "test:meet": "node test/meet.mjs",
     "test:page": "node test/land.mjs && node test/pad.mjs && node test/bout.mjs && node test/stage6.mjs && node test/guestpage.mjs && node test/yard.mjs && node test/logo.mjs && node test/app.mjs && node test/meet.mjs",
     "icons": "python3 tools/icons.py && node tools/og.mjs"
