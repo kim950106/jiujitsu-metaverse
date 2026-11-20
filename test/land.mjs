@@ -142,7 +142,7 @@ const drag = async (page, map, from, to) => {
   await until(page, () => !!window.__bjj.sim.p.duel);
   const duel = await page.evaluate(() => { const d = window.__bjj.sim.p.duel; return d ? d.kind : null; });
   ok(duel === 'spar', 'tapping 스파링 beside the partner starts sparring', String(duel));
-  await page.evaluate(() => window.__adv(2.0));
+  await page.evaluate(() => window.__adv(2.6));
   await hit('#rps-cycle');
   ok(await page.evaluate(() => window.__bjj.sim.tech === 'guil'), 'the technique button on the strip is hit where it is drawn');
   await sleep(500);
@@ -290,7 +290,7 @@ const drag = async (page, map, from, to) => {
   const d = await state(desk);
   ok(!d.rot && !d.land, 'a desktop is not turned');
   await desk.keyboard.press('KeyF');
-  ok(await desk.evaluate(() => { const dd = window.__bjj.sim.p.duel; window.__adv(1.8); return !!dd && dd.kind === 'spar'; }), 'key F starts sparring');
+  ok(await desk.evaluate(() => { const dd = window.__bjj.sim.p.duel; window.__adv(2.6); return !!dd && dd.kind === 'spar'; }), 'key F starts sparring');
   for (const [key, kind] of [['KeyQ', 'ankle'], ['KeyE', 'guil'], ['KeyS', 'tri'], ['KeyD', 'kim']]) {
     await desk.keyboard.press(key);
     const k = await desk.evaluate(() => window.__bjj.sim.tech);

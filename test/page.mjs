@@ -46,9 +46,11 @@ export async function launch(o = {}) {
   const errors = [];
   // o: { w, h, touch, sel (start-screen choices), query, store (extra localStorage entries),
   //      fresh (a browser profile of its own, as another person's device would be),
-  //      init (a function run in the page before any of its own code) }
+  //      init (a function run in the page before any of its own code), ua (the user agent string),
+  //      wait (false: do not wait for the game to start) }
   const open = async (o) => {
     const page = o.fresh ? await (await browser.createBrowserContext()).newPage() : await browser.newPage();
+    if (o.ua) await page.setUserAgent(o.ua);
     await page.setViewport({ width: o.w, height: o.h, deviceScaleFactor: 1, hasTouch: !!o.touch, isMobile: !!o.touch });
     await page.setRequestInterception(true);
     page.on('request', (rq) => {
@@ -68,7 +70,7 @@ export async function launch(o = {}) {
     }, o.sel || { place: 'gym', belt: 'purple', stripes: 3, gi: 'blue', name: '나' }, o.store || {});
     if (o.init) await page.evaluateOnNewDocument(o.init);
     await page.goto(`${base}/${o.query == null ? '?mock=1' : o.query}`, { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction('window.__bjj && window.__bjj.ok', { timeout: 20000 });
+    if (o.wait !== false) await page.waitForFunction('window.__bjj && window.__bjj.ok', { timeout: 20000 });
     return page;
   };
   const enter = async (page) => {

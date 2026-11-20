@@ -147,7 +147,11 @@ const laidOut = (page, sel) => page.evaluate((s) => {
   await shot(page, 'pad-spar-desktop');
   await page.keyboard.press('Digit2');
   ok(await until(page, () => window.__bjj.sim.p.duel.pick === 'r'), '2 throws rock');
-  ok(await until(page, () => !!window.__bjj.sim.p.bout && window.__bjj.sim.p.bout.kind === 'kim'), 'the won throw puts on the chosen technique');
+  ok(await until(page, () => window.__bjj.sim.p.duel.phase === 'move' && window.__bjj.sim.p.duel.S.pos === 'guard'), 'a won throw is a takedown, not yet a technique');
+  await page.evaluate(() => { const d = window.__bjj.sim.p.duel; d.S.w.A = d.S.need - 1; });
+  await until(page, () => window.__bjj.sim.p.duel.phase === 'pick');
+  await page.keyboard.press('Digit2');
+  ok(await until(page, () => !!window.__bjj.sim.p.bout && window.__bjj.sim.p.bout.kind === 'kim'), 'the throw that wins the series puts on the chosen technique');
   await page.evaluate(() => { const g = window.__bjj; g.sim.p.bout.cancel = true; });
   await until(page, () => !window.__bjj.sim.p.duel && !window.__bjj.sim.busy);
   await page.evaluate(() => { const g = window.__bjj; g.sim._cool = 0; const n = g.world.npcs.find((x) => x.name === '스파링 파트너'); n.x = n.home.x; n.z = n.home.z; n.busy = false; n.back = false; g.sim.p.x = n.x + 0.9; g.sim.p.z = n.z; });
@@ -234,6 +238,7 @@ for (const [name, w, h, deg] of [['land', 640, 360, 0], ['small', 568, 320, 0], 
   ok(strip.inside && !strip.pad && !strip.stick && strip.techs === 1 && !strip.small && !strip.clipped, `${name}: the strip fits between the stick and the buttons, with the technique button`, JSON.stringify(strip));
   await shot(page, `pad-spar-${name}`, deg);
   for (let i = 0; i < 4; i++) await press('#rps-cycle'); // arm → guil → omo → rnc → tri
+  await page.evaluate(() => { const d = window.__bjj.sim.p.duel; d.S.w.A = d.S.need - 1; });
   await press('.hand[data-hand="r"]');
   ok(await until(page, () => !!window.__bjj.sim.p.bout && window.__bjj.sim.p.bout.kind === 'tri'), `${name}: a touch chooses the technique and throws the hand`);
   await page.evaluate(() => { const s = window.__bjj.sim; s.p.bout.cancel = true; });

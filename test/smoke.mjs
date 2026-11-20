@@ -15,6 +15,7 @@ globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext:
 const { Sim } = await import('../src/sim.js');
 const { Character, TECH, GREET } = await import('../src/character.js');
 const { rpsResult, SLOW, MARGIN } = await import('../src/tech.js');
+const { SPAR } = await import('../src/spar.js');
 const { buildGym } = await import('../src/gym.js');
 const { buildArena } = await import('../src/arena.js');
 
@@ -82,31 +83,41 @@ tp(-0.6, -5.4); run(0.3);
 ok(prompt && prompt.label === '관장님께 물어보기', `master prompt (got ${prompt && prompt.label})`);
 sim.usePrompt(); ok(saw('[open master]'), 'asking the master opens the question list');
 
-// techniques: only inside sparring; the winner of a throw puts on the one they chose
+// techniques: only inside sparring, in the round that wins the series
 const partnerNpc = w.npcs.find((n) => n.name === '스파링 파트너');
 const home = { x: partnerNpc.home.x, z: partnerNpc.home.z };
 const near = () => { tp(home.x + 0.9, home.z, -Math.PI / 2); run(0.3); };
-// start sparring with the NPC and throw the first hand; leaves the technique of that round running
-const begin = (kind, npcHand) => {
+// start sparring with the NPC, make the next throw the one that decides it, and throw it; leaves
+// the technique running. `from` puts the two in a position first ({ pos, top }).
+const begin = (kind, npcHand, from) => {
   sim.npcPick = () => npcHand;
   sim.setTech(kind);
+  sim._cool = 0;
   if (!sim.challenge()) return false;
-  for (let i = 0; i < 300 && sim.p.duel.phase !== 'pick'; i++) sim.step(DT, idle);
+  const d = sim.p.duel;
+  for (let i = 0; i < 400 && d.phase !== 'pick'; i++) sim.step(DT, idle);
+  d.S.w.A = d.S.need - 1;
+  d.S.w.B = d.S.need - 1;
+  d.S.n = d.S.w.A + d.S.w.B;
+  if (from) {
+    d.S.pos = from.pos;
+    d.S.top = from.top;
+    run(1.5); // into the position
+  }
   sim.pick('r');
   for (let i = 0; i < 300 && !sim.p.bout; i++) sim.step(DT, idle);
   return !!sim.p.bout;
 };
-// let the technique finish, then give the sparring up
+// let the technique and the end of the sparring run out
 const quit = () => {
   for (let i = 0; i < 1200 && sim.p.mode === 'bout'; i++) sim.step(DT, idle);
-  sim.cancelDuel();
+  for (let i = 0; i < 600 && sim.p.duel; i++) sim.step(DT, idle);
   run(0.2);
 };
 near();
 ok(partner && partner.name === '스파링 파트너', `partner in reach (got ${partner && partner.name})`);
 ok(rpsResult('r', 's') === 1 && rpsResult('s', 'r') === -1 && rpsResult('p', 'p') === 0 && rpsResult('p', 'r') === 1 && rpsResult('s', 'p') === 1, 'rock-paper-scissors table');
-ok(begin('arm', 's') && sim.p.mode === 'bout' && sim.p.bout.a === sim.p && sim.p.bout.kind === 'arm', 'sparring: the throw is won and the winner puts on the armbar');
-// slap and bump first: the two right hands meet twice
+// sparring opens with a bow and then the slap and bump: the two right hands meet twice
 const handGap = () => {
   const v1 = new THREEm.Vector3();
   const v2 = new THREEm.Vector3();
@@ -116,30 +127,39 @@ const handGap = () => {
   partnerNpc.char.reachAR.end.getWorldPosition(v2);
   return v1.distanceTo(v2);
 };
-ok(sim.p.bout.t < 0.22, `the check starts inside the wind-up (t=${sim.p.bout.t.toFixed(2)})`);
-sim.char.blinkT = 99; // a blink would hide the smile checked below
-sim.char.blink = 0;
-run(0.22 - sim.p.bout.t);
-const apartGap = handGap();
-run(GREET.slap + 0.07 - sim.p.bout.t);
-const slapGap = handGap();
-run(0.56 - sim.p.bout.t);
-const backGap = handGap();
-run(GREET.bump + 0.07 - sim.p.bout.t);
-const bumpGap = handGap();
-ok(slapGap < 0.12 && bumpGap < 0.12 && apartGap > 0.6 && backGap > 0.25, `slap and bump: the right hands meet twice (${apartGap.toFixed(2)} → ${slapGap.toFixed(2)} → ${backGap.toFixed(2)} → ${bumpGap.toFixed(2)} m)`);
-ok(sim.char.faceNow === 'grin', 'and both smile for it');
+{
+  sim.npcPick = () => 's';
+  ok(sim.challenge() && sim.p.duel.phase === 'intro', 'sparring starts with the bow');
+  const d = sim.p.duel;
+  const at = (t) => run(SPAR.bow + t - d.t);
+  sim.char.blinkT = 99; // a blink would hide the smile checked below
+  sim.char.blink = 0;
+  at(0.22);
+  const apartGap = handGap();
+  at(GREET.slap + 0.07);
+  const slapGap = handGap();
+  at(0.56);
+  const backGap = handGap();
+  at(GREET.bump + 0.07);
+  const bumpGap = handGap();
+  ok(slapGap < 0.12 && bumpGap < 0.12 && apartGap > 0.6 && backGap > 0.25, `slap and bump: the right hands meet twice (${apartGap.toFixed(2)} → ${slapGap.toFixed(2)} → ${backGap.toFixed(2)} → ${bumpGap.toFixed(2)} m)`);
+  ok(sim.char.faceNow === 'grin' && partnerNpc.char.faceNow === 'grin', 'and both smile for it');
+  sim.cancelDuel();
+  run(6);
+}
+near();
+ok(begin('arm', 's') && sim.p.mode === 'bout' && sim.p.bout.a === sim.p && sim.p.bout.kind === 'arm' && !sim.p.bout.ground, 'sparring: the deciding throw is won and the winner puts on the armbar (standing: no position yet)');
 run(TECH.down + 0.2 - sim.p.bout.t);
 ok(Math.abs(partnerNpc.char.C.tiltX + Math.PI / 2) < 0.2, `defender is on the back after the takedown (tilt ${partnerNpc.char.C.tiltX.toFixed(2)})`);
 const wall0 = sim.t;
 run(TECH.tap + 0.3 - sim.p.bout.t);
 ok(saw('탭!') && Math.abs(sim.char.C.tiltX + Math.PI / 2) < 0.2, 'armbar: attacker lies back, defender taps');
 ok(sim.p.bout.t < TECH.tap + 0.2 && sim.p.bout.t > TECH.tap, `the tap plays in slow motion (${(sim.p.bout.t - TECH.tap).toFixed(2)} s of it in ${(sim.t - wall0 - (TECH.tap - TECH.down - 0.2)).toFixed(2)} s)`);
-ok(sim.p.duel.S.w.A === 1 && sim.streak === 0, 'the round is counted; a run of wins counts whole sparring sessions, not rounds');
+ok(sim.p.duel.S.w.A === sim.p.duel.S.need && sim.streak === 0, 'the round is counted at the tap; the run of wins waits for the end of the sparring');
 run(TECH.end);
-ok(sim.p.mode === 'duel' && !sim.p.bout && sim.bouts.length === 0 && sim.p.onMat, `the technique ends and the next round begins (mode ${sim.p.mode})`);
+ok(sim.p.mode === 'duel' && sim.p.duel.phase === 'end' && !sim.p.bout && sim.bouts.length === 0 && sim.p.onMat && sim.streak === 1, `the technique ends the sparring (mode ${sim.p.mode})`);
 quit();
-ok(sim.p.mode === 'free' && duel === null, 'sparring can be given up between rounds');
+ok(sim.p.mode === 'free' && duel === null, 'and both are let go');
 run(6);
 ok(!partnerNpc.busy && Math.hypot(partnerNpc.x - home.x, partnerNpc.z - home.z) < 0.1, 'partner walks back to its spot');
 
@@ -151,8 +171,44 @@ tp(4, 1); run(0.2); sim.doAction('roll');
 ok(saw('매트 위에서'), 'roll refused off the mat');
 ok(!sim.challenge() && saw('스파링은 매트 위에서'), 'sparring refused off the mat');
 
-// every other technique goes the same way and ends in its own hold
+// every technique ends in its own hold, whether started standing or from a position on the ground
 const sameWay = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+const holds = (kind, how) => {
+  const A = sim.char.C;
+  const D = partnerNpc.char.C;
+  if (kind === 'guil') {
+    ok(Math.abs(A.tiltX) < 0.4 && A.drop > -0.15 && D.spine > 0.85 && Math.abs(D.tiltX) < 0.2, `guil ${how}: attacker stands, defender is bent over (spine ${D.spine.toFixed(2)})`);
+    ok(Math.hypot(sim.p.x - partnerNpc.x, sim.p.z - partnerNpc.z) < 0.7, `guil ${how}: the two are locked together`);
+  } else if (kind === 'omo') {
+    ok(Math.abs(D.tiltX - Math.PI / 2) < 0.2 && D.drop < -0.25, `omo ${how}: defender is face down (tilt ${D.tiltX.toFixed(2)})`);
+    ok(A.drop < -0.25 && Math.abs(A.tiltX) < 0.3 && A.lLs > 1.3, `omo ${how}: attacker sits beside with a leg over (leg reach ${A.lLs.toFixed(2)})`);
+    ok(sameWay(sim.p.yaw, partnerNpc.yaw) < 0.4, `omo ${how}: both face the same way`);
+  } else if (kind === 'tri') {
+    ok(A.tiltX < -1.9 && A.drop > -0.12 && A.lLs > 1.5 && A.lRs > 1.5, `tri ${how}: attacker is on the back with the hips up and the legs thrown high (tilt ${A.tiltX.toFixed(2)}, reach ${A.lLs.toFixed(2)})`);
+    ok(D.drop < -0.18 && Math.abs(D.tiltX) < 0.2 && D.spine > 0.8, `tri ${how}: defender is on the knees, folded forward (spine ${D.spine.toFixed(2)})`);
+    ok(Math.hypot(sim.p.x - partnerNpc.x, sim.p.z - partnerNpc.z) < 0.6 && sameWay(sim.p.yaw, partnerNpc.yaw + Math.PI) < 0.2, `tri ${how}: they face each other, locked together`);
+  } else if (kind === 'kim') {
+    ok(Math.abs(D.tiltX + Math.PI / 2) < 0.2 && D.drop < -0.25 && D.aLs > 1.3, `kim ${how}: defender is on the back with the far arm bent out (reach ${D.aLs.toFixed(2)})`);
+    ok(A.drop < -0.18 && Math.abs(A.tiltX) < 0.2 && A.spine > 0.6, `kim ${how}: attacker kneels and leans over`);
+    ok(Math.abs(sameWay(sim.p.yaw, partnerNpc.yaw) - Math.PI / 2) < 0.2, `kim ${how}: attacker is across the defender`);
+  } else if (kind === 'rnc') {
+    ok(A.drop < -0.25 && D.drop < -0.25, `rnc ${how}: both are seated`);
+    ok(sameWay(sim.p.yaw, partnerNpc.yaw) < 0.2, `rnc ${how}: the defender is turned round, back to the attacker`);
+    const ux = Math.sin(sim.p.yaw);
+    const uz = Math.cos(sim.p.yaw);
+    ok((partnerNpc.x - sim.p.x) * ux + (partnerNpc.z - sim.p.z) * uz > 0.1 && A.aLs > 1.6, `rnc ${how}: attacker is behind, arm round the neck (arm reach ${A.aLs.toFixed(2)})`);
+  } else if (kind === 'arm') {
+    ok(Math.abs(sim.char.C.tiltX + Math.PI / 2) < 0.2 && Math.abs(D.tiltX + Math.PI / 2) < 0.2, `arm ${how}: attacker lies back across the defender, who is on the back`);
+  } else ok(A.drop < -0.25 && Math.abs(D.tiltX + Math.PI / 2) < 0.2, `ankle ${how}: attacker sits at the feet, defender is on the back`);
+};
+const after = (kind) => {
+  ok(sim.p.mode === 'free' && sim.bouts.length === 0 && sim.p.onMat, `${kind}: both let go`);
+  run(1.5);
+  ok(['aLs', 'aRs', 'lLs', 'lRs'].every((k) => Math.abs(sim.char.C[k] - 1) < 0.01 && Math.abs(partnerNpc.char.C[k] - 1) < 0.01), `${kind}: limbs are back to their own length`);
+  ok(Math.abs(sim.char.C.tiltX) < 0.05 && Math.abs(partnerNpc.char.C.tiltX) < 0.05 && Math.abs(partnerNpc.char.C.headY) < 0.02, `${kind}: both stand upright again`);
+  run(6);
+  ok(!partnerNpc.busy && Math.hypot(partnerNpc.x - home.x, partnerNpc.z - home.z) < 0.1 && sameWay(partnerNpc.yaw, partnerNpc.home.yaw) < 0.2, `${kind}: partner is back on its spot`);
+};
 for (const kind of ['ankle', 'guil', 'omo', 'rnc', 'tri', 'kim']) {
   near();
   toasts.length = 0;
@@ -160,41 +216,51 @@ for (const kind of ['ankle', 'guil', 'omo', 'rnc', 'tri', 'kim']) {
   const b = sim.p.bout;
   ok(sim.p.mode === 'bout' && b && b.kind === kind && b.a === sim.p, `${kind}: winner attacks`);
   run(TECH.move + 0.7 - b.t);
-  const A = sim.char.C;
-  const D = partnerNpc.char.C;
-  if (kind === 'guil') {
-    ok(Math.abs(A.tiltX) < 0.4 && A.drop > -0.15 && D.spine > 0.85 && Math.abs(D.tiltX) < 0.2, `guil: attacker stands, defender is bent over (spine ${D.spine.toFixed(2)})`);
-    ok(Math.hypot(sim.p.x - partnerNpc.x, sim.p.z - partnerNpc.z) < 0.7, 'guil: the two are locked together');
-  } else if (kind === 'omo') {
-    ok(Math.abs(D.tiltX - Math.PI / 2) < 0.2 && D.drop < -0.25, `omo: defender is face down (tilt ${D.tiltX.toFixed(2)})`);
-    ok(A.drop < -0.25 && Math.abs(A.tiltX) < 0.3 && A.lLs > 1.3, `omo: attacker sits beside with a leg over (leg reach ${A.lLs.toFixed(2)})`);
-    ok(sameWay(sim.p.yaw, partnerNpc.yaw) < 0.4, 'omo: both face the same way');
-  } else if (kind === 'tri') {
-    ok(A.tiltX < -1.9 && A.drop > -0.12 && A.lLs > 1.5 && A.lRs > 1.5, `tri: attacker is on the back with the hips up and the legs thrown high (tilt ${A.tiltX.toFixed(2)}, reach ${A.lLs.toFixed(2)})`);
-    ok(D.drop < -0.18 && Math.abs(D.tiltX) < 0.2 && D.spine > 0.8, `tri: defender is on the knees, folded forward (spine ${D.spine.toFixed(2)})`);
-    ok(Math.hypot(sim.p.x - partnerNpc.x, sim.p.z - partnerNpc.z) < 0.6 && sameWay(sim.p.yaw, partnerNpc.yaw + Math.PI) < 0.2, 'tri: they face each other, locked together');
-  } else if (kind === 'kim') {
-    ok(Math.abs(D.tiltX + Math.PI / 2) < 0.2 && D.drop < -0.25 && D.aLs > 1.3, `kim: defender is on the back with the far arm bent out (reach ${D.aLs.toFixed(2)})`);
-    ok(A.drop < -0.18 && Math.abs(A.tiltX) < 0.2 && A.spine > 0.6, 'kim: attacker kneels and leans over');
-    ok(Math.abs(sameWay(sim.p.yaw, partnerNpc.yaw) - Math.PI / 2) < 0.2, 'kim: attacker is across the defender');
-  } else if (kind === 'rnc') {
-    ok(A.drop < -0.25 && D.drop < -0.25, 'rnc: both are seated');
-    ok(sameWay(sim.p.yaw, partnerNpc.yaw) < 0.2, 'rnc: the defender is turned round, back to the attacker');
-    const ux = Math.sin(sim.p.yaw);
-    const uz = Math.cos(sim.p.yaw);
-    ok((partnerNpc.x - sim.p.x) * ux + (partnerNpc.z - sim.p.z) * uz > 0.1 && A.aLs > 1.6, `rnc: attacker is behind, arm round the neck (arm reach ${A.aLs.toFixed(2)})`);
-  } else ok(A.drop < -0.25 && Math.abs(D.tiltX + Math.PI / 2) < 0.2, 'ankle: attacker sits at the feet, defender is on the back');
+  holds(kind, 'standing');
   run(TECH.tap + 0.3 - b.t);
   ok(saw('탭!') && partnerNpc.char.faceNow === 'ouch', `${kind}: the defender taps`);
   quit();
-  ok(sim.p.mode === 'free' && sim.bouts.length === 0 && sim.p.onMat, `${kind}: both let go`);
-  run(1.5);
-  ok(['aLs', 'aRs', 'lLs', 'lRs'].every((k) => Math.abs(sim.char.C[k] - 1) < 0.01 && Math.abs(partnerNpc.char.C[k] - 1) < 0.01), `${kind}: limbs are back to their own length`);
-  ok(Math.abs(sim.char.C.tiltX) < 0.05 && Math.abs(partnerNpc.char.C.tiltX) < 0.05 && Math.abs(partnerNpc.char.C.headY) < 0.02, `${kind}: both stand upright again`);
-  run(6);
-  ok(!partnerNpc.busy && Math.hypot(partnerNpc.x - home.x, partnerNpc.z - home.z) < 0.1 && sameWay(partnerNpc.yaw, partnerNpc.home.yaw) < 0.2, `${kind}: partner is back on its spot`);
+  after(kind);
 }
-// losing a throw: the NPC's technique goes on
+// from the ground: where the two lie is where the finish starts, without anyone spinning round
+for (const [kind, pos, top] of [['arm', 'mount', 'A'], ['rnc', 'back', 'A'], ['tri', 'guard', 'B'], ['kim', 'side', 'A'], ['omo', 'guard', 'B'], ['guil', 'side', 'B'], ['ankle', 'mount', 'B']]) {
+  near();
+  toasts.length = 0;
+  sim.npcPick = () => 's';
+  sim.setTech(kind);
+  sim._cool = 0;
+  ok(sim.challenge(), `${kind} from ${pos}: sparring`);
+  const d = sim.p.duel;
+  for (let i = 0; i < 400 && d.phase !== 'pick'; i++) sim.step(DT, idle);
+  d.S.w.A = d.S.need - 1;
+  d.S.pos = pos;
+  d.S.top = top;
+  run(2);
+  const want = top === 'A' ? ['Top', 'Bottom'] : ['Bottom', 'Top'];
+  ok(sim.char.anim === `${pos}${want[0]}` && partnerNpc.anim === `${pos}${want[1]}`, `${kind} from ${pos}: the two are in the position first (${sim.char.anim} / ${partnerNpc.anim})`);
+  const y0 = [sim.p.yaw, partnerNpc.yaw];
+  sim.pick('r');
+  for (let i = 0; i < 300 && !sim.p.bout; i++) sim.step(DT, idle);
+  const b = sim.p.bout;
+  ok(b && b.kind === kind && b.ground && b.a === sim.p, `${kind} from ${pos}: the finish starts from the ground`);
+  let spin = 0;
+  let last = [sim.p.yaw, partnerNpc.yaw];
+  spin = Math.max(sameWay(last[0], y0[0]), sameWay(last[1], y0[1]));
+  let fast = 0;
+  for (let i = 0; i < 60; i++) {
+    sim.step(DT, idle);
+    fast = Math.max(fast, sameWay(sim.p.yaw, last[0]) / DT, sameWay(partnerNpc.yaw, last[1]) / DT);
+    last = [sim.p.yaw, partnerNpc.yaw];
+  }
+  ok(spin < 0.35 && fast < 9, `${kind} from ${pos}: nobody snaps round (first step ${spin.toFixed(2)} rad, fastest turn ${fast.toFixed(1)} rad/s)`);
+  run(TECH.move + 0.7 - b.t);
+  holds(kind, `from ${pos}`);
+  run(TECH.tap + 0.3 - b.t);
+  ok(saw('탭!'), `${kind} from ${pos}: the tap`);
+  quit();
+  after(`${kind} from ${pos}`);
+}
+// losing the deciding throw: the NPC's technique goes on
 near();
 ok(begin('rnc', 'p') && sim.p.bout.d === sim.p && sim.p.bout.a === partnerNpc, 'a lost throw: the player is the one held');
 run(TECH.tap + 0.2 - sim.p.bout.t);
@@ -255,7 +321,7 @@ const outNpc = w.npcs.find((n) => n.name === '야외 매트의 관원');
 tp(outNpc.x + 0.9, outNpc.z, -Math.PI / 2); run(0.4);
 ok(partner && partner.name === '야외 매트의 관원' && begin('tri', 's'), 'sparring can be started out there');
 run(TECH.tap + 0.3 - sim.p.bout.t);
-ok(saw('탭! 나의 트라이앵글'), 'and a round runs to the tap under the night sky');
+ok(saw('탭! 나의 트라이앵글'), 'and it runs to the tap under the night sky');
 quit();
 run(6);
 stopped([-15, -10], [-15, -3], (p) => p.z < -8.3, 'the corner beside the building is walled off');
@@ -276,7 +342,7 @@ ok(duel && duel.phase === 'wait', 'asking a person waits for them');
 const st = sim.netState();
 ok(st.du && st.du.c === 1 && st.du.w === 'peer-b' && st.du.k === 'spar' && st.anim === 'stance', 'the request is published');
 friend.du = { id: sim.p.duel.id, k: 'spar', r: 1, p: null, tk: 'arm', c: 0 };
-run(2);
+run(SPAR.intro + 0.3);
 ok(duel.phase === 'pick' && duel.rule === '5판 3선승', 'their yes starts it, by the lower belt\'s rule');
 sim.pick('s'); run(0.2);
 ok(duel.phase === 'pick' && duel.pick === 's', 'waits for their hand');
@@ -284,7 +350,13 @@ friend.du = Object.assign({}, friend.du, { p: 'p' });
 run(0.2);
 ok(duel.phase === 'reveal' && duel.result === 1, 'scissors beats paper');
 run(1.8);
-ok(sim.p.mode === 'bout' && friend.bout === sim.p.bout && sim.netState().bt.r === 'a' && sim.netState().bt.w === 'peer-b', 'the technique against a person is published');
+ok(sim.p.duel.phase === 'move' && sim.p.duel.S.pos === 'guard' && friend.ctl && friend.ctl.anim === 'guardBottom', 'a takedown on a person: their body is laid down here');
+sim.p.duel.S.w.A = 2;
+for (let i = 0; i < 300 && sim.p.duel.phase !== 'pick'; i++) sim.step(DT, idle);
+friend.du = Object.assign({}, friend.du, { r: sim.p.duel.round, p: 'p' });
+sim.pick('s');
+run(1.8);
+ok(sim.p.mode === 'bout' && friend.bout === sim.p.bout && sim.netState().bt.r === 'a' && sim.netState().bt.w === 'peer-b' && sim.netState().bt.g === 1, 'the finish against a person is published');
 friend.gone = true; sim.p.bout.cancel = true; run(0.2);
 ok(sim.p.mode === 'free' && !sim.p.duel, 'it all ends if the other person leaves');
 sim.peers = () => [];
@@ -329,11 +401,11 @@ sim.doAction('shrimp'); run(4.2); ok(sim.p.mode === 'free', 'shrimp in warm-up')
 const wp = w.npcs.find((n) => n.name === '몸풀기 파트너');
 tp(wp.x + 0.9, wp.z); run(0.3);
 {
-  const begin2 = () => { sim.npcPick = () => 's'; sim.setTech('ankle'); if (!sim.challenge()) return false; run(1.7); sim.pick('r'); run(1.6); return !!sim.p.bout; };
+  const begin2 = () => begin('ankle', 's');
   ok(begin2(), 'the warm-up partner spars');
   run(TECH.tap + 0.3 - sim.p.bout.t);
   ok(saw('탭!'), 'ankle lock in the warm-up area');
-  run(FULL); sim.cancelDuel(); run(2);
+  quit(); run(2);
   ok(sim.p.mode === 'free', 'and free again');
 }
 ok(walkTo(-16.4, 0), 'walk to west gate');

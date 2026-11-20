@@ -80,7 +80,7 @@ ok(og.sig && og.w === 1200 && og.h === 630 && og.bytes < 900000, 'the preview pi
   await p0.evaluate(() => { document.querySelector('#menu-btn').click(); document.querySelector('#m-app').click(); });
   await sleep(200);
   const dlg = await p0.evaluate(() => ({ open: !document.querySelector('#modal-app').hidden, install: !document.querySelector('#app-install').hidden, text: document.querySelector('#modal-app').textContent.replace(/\s+/g, ' ') }));
-  ok(dlg.open && dlg.text.includes('홈 화면에 추가') && dlg.text.includes('사파리') && dlg.text.includes('다른 브라우저로 열기'), 'the dialog says where to find it on each kind of phone');
+  ok(dlg.open && dlg.text.includes('홈 화면에 추가') && dlg.text.includes('사파리') && dlg.text.includes('기본 브라우저로 저절로 넘어갑니다') && dlg.text.includes('Safari로 열기'), 'the dialog says where to find it on each kind of phone, and that an app\'s own browser hands over');
   // (this Chrome may already have offered to install the page by itself, since the manifest is complete)
   console.log(`note  the test browser ${dlg.install ? 'offered' : 'did not offer'} its own install step for this page`);
   // where the browser offers its own install step, a button takes it

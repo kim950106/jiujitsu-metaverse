@@ -41,8 +41,17 @@ for (const kind of kinds) {
     g.sim._cool = 0;
     g.sim.challenge(k);
   }, kind, lose ? 'p' : 's');
-  await T.adv(page, 0.5);
-  const started = await page.evaluate(() => { const g = window.__bjj; if (!g.sim.p.duel) return false; g.sim.pick('r'); return true; });
+  // the throw that decides the series, so that it goes straight to the technique
+  const started = await page.evaluate(() => {
+    const g = window.__bjj;
+    const d = g.sim.p.duel;
+    if (!d) return false;
+    for (let i = 0; i < 400 && d.phase !== 'pick'; i++) window.__adv(1 / 60);
+    d.S.w.A = d.S.need - 1;
+    d.S.w.B = d.S.need - 1;
+    g.sim.pick('r');
+    return true;
+  });
   if (!started) { T.errors.push(`${kind}: no duel started`); continue; }
   await T.adv(page, 1.75);
   const files = [];
