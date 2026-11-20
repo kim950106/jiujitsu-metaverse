@@ -85,7 +85,7 @@ export function initUI(data) {
   const paintPad = () => {
     const it = hud.prompt;
     const racing = hud.race && hud.race.phase !== 'done';
-    mainBtn.textContent = racing ? (hud.race.phase === 'go' ? '새우!' : '준비') : it ? it.short || '사용' : '인사';
+    mainBtn.textContent = racing ? (hud.race.phase === 'go' ? '엉덩이!' : '준비') : it ? it.short || '사용' : '인사';
     mainBtn.classList.toggle('hot', !!it || (racing && hud.race.phase === 'go'));
     const ready = !!hud.partner && hud.onMat;
     sparBtn.classList.toggle('ready', ready || hud.ask);
@@ -111,8 +111,9 @@ export function initUI(data) {
     $('#mt-name').textContent = sp.name;
     const word = sp.end ? { win: '승리', lose: '패배', draw: '무승부' }[sp.end] || '' : '';
     $('#mt-clock').textContent = word || `${sp.n}판째`;
-    $('#mt-pos').textContent = sp.rule;
-    $('#mt-short').textContent = sp.rule; // the narrow bar on a phone
+    $('#mt-pos').textContent = sp.pos ? `${sp.rule} · ${sp.pos}` : sp.rule;
+    $('#mt-short').textContent = sp.pos || sp.rule; // the narrow bar on a phone
+    $('#matchbar').dataset.top = sp.top; // a mark beside the score of the one on top
   };
   const showDuel = (d) => {
     if (!d) {
@@ -153,10 +154,11 @@ export function initUI(data) {
     const choosing = picking && !d.pick;
     rps.classList.toggle('choose', choosing);
     $('#rps-cycle').hidden = !choosing;
-    $('#rps-cycle').textContent = `기술 · ${KINDS[d.tech]} ⟳`;
+    $('#rps-cycle').textContent = `마무리 · ${KINDS[d.tech]} ⟳`;
     const status = $('#rps-status');
+    const sp = d.spar;
     if (waiting || picking) {
-      status.textContent = waiting ? '상대의 수락을 기다리는 중…' : d.pick ? '상대가 고르는 중…' : `이기면 ${KINDS[d.tech]}!`;
+      status.textContent = waiting ? '상대의 수락을 기다리는 중…' : d.pick ? '상대가 고르는 중…' : sp ? `이기면 ${sp.win}` : '';
       const key = `${d.phase}${d.round}`;
       if (key !== barKey) {
         barKey = key;
@@ -170,7 +172,8 @@ export function initUI(data) {
       barKey = '';
       $('#rps-me').textContent = HANDS[d.pick] || '';
       $('#rps-them').textContent = HANDS[d.their] || '';
-      status.textContent = d.result > 0 ? `이겼습니다! ${KIND_OBJ[d.tech]} 겁니다` : d.result < 0 ? '졌습니다. 상대의 기술이 들어옵니다' : '비겼습니다. 다시!';
+      const won = sp && sp.final ? `${KIND_OBJ[d.tech]} 겁니다` : sp ? sp.win : '';
+      status.textContent = d.result > 0 ? `이겼습니다! ${won}` : d.result < 0 ? `졌습니다. ${sp ? sp.lose : ''}` : '비겼습니다. 다시!';
     }
   };
   // somebody asks this player to spar: a = { name, rule, left, total } while they ask, else null
@@ -348,7 +351,7 @@ export function initUI(data) {
       else if ($$('.modal').some((m) => !m.hidden)) closeModals();
       else toggleMenu();
     },
-    // a shrimp race: r = { phase: 'count' | 'go' | 'done', time, prog, n } while it lasts, else null
+    // a hip-walk race: r = { phase: 'count' | 'go' | 'done', time, prog, n } while it lasts, else null
     race: (r) => {
       const was = hud.race ? hud.race.phase : '';
       hud.race = r;
@@ -358,14 +361,15 @@ export function initUI(data) {
       $('#mash-l').textContent = '출발';
       $('#mash-r').textContent = '도착 6 m';
       $('#mash-timewrap').hidden = true;
-      $('#mash-text').textContent = r.phase === 'count' ? '새우빼기 경주 · 준비' : `새우빼기 경주 · ${r.time.toFixed(1)}초`;
+      $('#mash-text').textContent = r.phase === 'count' ? '엉덩이걷기 경주 · 준비' : `엉덩이걷기 경주 · ${r.time.toFixed(1)}초`;
       $('#mash-bar').style.width = `${clamp(r.prog, 0, 1) * 100}%`;
     },
-    // a finished race: the best time is remembered in this browser
+    // a finished race: the best time is remembered in this browser (the shrimp race's best, kept
+    // under bjjmeta.race, is a different race and is left as it was)
     raceDone: (t) => {
-      const old = parseFloat(store.get('bjjmeta.race') || '');
+      const old = parseFloat(store.get('bjjmeta.scoot') || '');
       const isBest = !(old > 0) || t < old;
-      if (isBest) store.set('bjjmeta.race', t.toFixed(2));
+      if (isBest) store.set('bjjmeta.scoot', t.toFixed(2));
       return { best: isBest ? t : old, isBest };
     },
     photo: (name) => toast(`${name} 님이 단체 사진을 찍습니다. 3, 2, 1!`, 3600),
@@ -656,8 +660,22 @@ export function initUI(data) {
   };
   hold($('#cam-l'), 1);
   hold($('#cam-r'), -1);
-  tap($('#zoom-in'), () => game.zoom(-1));
-  tap($('#zoom-out'), () => game.zoom(1));
+  // nearer and further: a step at a touch, on and on while held
+  const zoomBtn = (el, dir) => {
+    const off = () => game.zoomHold(0);
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault();
+      game.zoomHold(dir);
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    });
+    el.addEventListener('pointerup', off);
+    el.addEventListener('pointercancel', off);
+    el.addEventListener('lostpointercapture', off);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); game.zoom(dir * 0.8); } });
+  };
+  zoomBtn($('#zoom-in'), -1);
+  zoomBtn($('#zoom-out'), 1);
   $('#menu-btn').addEventListener('click', () => toggleMenu());
   $('#people-btn').addEventListener('click', () => { paintPeople(); openModal('modal-people'); });
   $('#m-people').addEventListener('click', () => { paintPeople(); openModal('modal-people'); });

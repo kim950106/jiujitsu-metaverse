@@ -5,15 +5,18 @@
 // Nothing here is trusted: every field that arrives is checked before it is used.
 import { Character, TECH } from './character.js';
 import { Bout, isKind, SAYS } from './tech.js';
-import { sparSpot } from './spar.js';
+import { sparSpot, posFrom } from './spar.js';
 import { BELTS, GIS, clamp, turnToward, cleanName, mayBlack, maxStripes } from './util.js';
 import { relayRoom, hostKind } from './relay.js';
 
 const SEND_EVERY = 0.1; // seconds between presence updates
+// the positions of sparring: eased into more slowly
+const GROUND = new Set(['guardTop', 'guardBottom', 'sideTop', 'sideBottom', 'mountTop', 'mountBottom', 'backTop', 'backBottom']);
 const ANIMS = new Set([
-  'loco', 'sit', 'chair', 'bow', 'shrimp', 'roll', 'rollb', 'scoot', 'stance', 'tech', 'shaka', 'bridge', 'standup', 'shrimpf', 'win',
+  'loco', 'sit', 'chair', 'bow', 'shrimp', 'roll', 'rollb', 'scoot', 'stance', 'tech', 'shaka', 'bridge', 'standup', 'shrimpf', 'scootf', 'win', 'greet',
+  ...GROUND,
 ]);
-const DRILLS = new Set(['roll', 'rollb', 'scoot', 'shrimp', 'bridge', 'standup', 'shrimpf']); // in the middle of one, nobody is a partner
+const DRILLS = new Set(['roll', 'rollb', 'scoot', 'shrimp', 'bridge', 'standup', 'shrimpf', 'scootf']); // in the middle of one, nobody is a partner
 const r2 = (v) => Math.round(v * 100) / 100;
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : '');
@@ -36,6 +39,7 @@ function cleanLink(d, bout) {
     if (d.r !== 'a' && d.r !== 'd') return null;
     o.r = d.r;
     o.s = d.s === 1 ? 1 : 0;
+    o.g = d.g === 1 ? 1 : 0;
   } else {
     o.r = num(d.r) ? clamp(d.r | 0, 1, 99) : 1;
     const hand = (v) => (v === 's' || v === 'r' || v === 'p' ? v : null);
@@ -46,6 +50,7 @@ function cleanLink(d, bout) {
     o.c = d.c === 1 ? 1 : 0;
     o.sa = num(d.sa) ? clamp(d.sa | 0, 0, 10) : 0;
     o.sb = num(d.sb) ? clamp(d.sb | 0, 0, 10) : 0;
+    o.ps = num(d.ps) ? clamp(d.ps | 0, 0, 8) : 0;
     o.e = d.e === 1 || d.e === 2 || d.e === 3 ? d.e : 0;
   }
   return o;
@@ -143,6 +148,7 @@ class Avatar {
     if (!this.bout && !this.ctl && (st.anim !== this.anim || st.actN !== this.actN)) {
       const act = st.anim === 'tech' ? 'stance' : st.anim;
       if (act !== this.anim || st.actN !== this.actN) {
+        this.char.rate = GROUND.has(act) || GROUND.has(this.anim) ? 9 : 20;
         this.char.play(act);
         if (act === 'shaka') this.char.say('🤙', 1.7);
       }
@@ -170,7 +176,7 @@ class Avatar {
       this.y += (st.y - this.y) * k;
       this.yaw = turnToward(this.yaw, c.yaw, 9 * dt);
       this.speed = 0;
-      this.char.rate = 9;
+      this.char.rate = c.rate || 9;
       if (this.ctlAnim !== c.anim) {
         this.ctlAnim = c.anim;
         this.char.play(c.anim);
@@ -496,7 +502,7 @@ export class Net {
     }
     const atk = bt.r === 'a' ? av : other;
     const def = bt.r === 'a' ? other : av;
-    const bout = new Bout({ id: bt.id, kind: bt.k, atk, def, ox: bt.ox, oz: bt.oz, yaw: bt.yw, names: [atk.name, def.name], t: bt.s ? TECH.greet : 0 });
+    const bout = new Bout({ id: bt.id, kind: bt.k, atk, def, ox: bt.ox, oz: bt.oz, yaw: bt.yw, names: [atk.name, def.name], t: bt.g ? TECH.down : bt.s ? TECH.greet : 0, ground: !!bt.g });
     this.shown.add(bt.id);
     av.bout = bout;
     av.ctlAnim = '';
@@ -523,10 +529,12 @@ export class Net {
       this.held.set(npc, { av: av.id, du: du.id });
     } else if (h.av !== av.id) return;
     else h.du = du.id;
-    if (av.bout && !av.bout.done) return; // a finish is being tried: the technique moves both
-    const o = sparSpot({ ox: du.ox, oz: du.oz, yaw: du.yw }, 'B', du.e ? 'end' : 'pick', 0, du.e); // the NPC is always the one asked
+    if (av.bout && !av.bout.done) return; // the finish: the technique moves both
+    const S = Object.assign(posFrom(du.e ? 0 : du.ps), { end: du.e });
+    const o = sparSpot({ ox: du.ox, oz: du.oz, yaw: du.yw }, 'B', du.e ? 'end' : 'pick', 0, S); // the NPC is always the one asked
     npc.slideTo(o.x, o.z, 2.6, dt);
     npc.yaw = turnToward(npc.yaw, o.yaw, 8 * dt);
+    npc.char.rate = S.pos === 'stand' ? 20 : 9;
     npc.setAnim(o.anim);
   }
 

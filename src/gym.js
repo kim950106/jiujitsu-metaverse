@@ -69,16 +69,19 @@ export function buildGym(api) {
   w.floor({ x: mcx, z: mcz, y: 0.042, w: mw, d: md, tex: w.texMatColor('white', '#eeece6', '#d6d3cb'), tile: 2 });
   w.collider(MX0, MX1, MZ0, MZ1, 0, 0.04);
 
-  // The shrimp-race lane along the south edge of the mat: six metres from the start line to the finish.
+  // The hip-walk race along the south edge of the mat: three lanes, six metres from the start line to
+  // the finish.
   const RX0 = -3.0;
   const RX1 = -9.0;
-  const RZ0 = -1.3;
-  const RZ1 = 0.3;
-  w.race = { x0: RX0, x1: RX1, z0: RZ0, z1: RZ1, yaw: Math.PI / 2 }; // lying with the head toward the finish
+  const LANE = 0.8;
+  const RZ0 = -1.7;
+  const RZ1 = RZ0 + 3 * LANE;
+  const lanes = [0, 1, 2].map((i) => RZ0 + LANE * (i + 0.5));
+  w.race = { x0: RX0, x1: RX1, z0: RZ0, z1: RZ1, yaw: -Math.PI / 2, lanes }; // sitting, facing the finish
   for (const [x, col] of [[RX0, 0xd99a00], [RX1, 0x15171a]]) w.box({ x, z: (RZ0 + RZ1) / 2, y: 0.043, w: 0.09, h: 0.004, d: RZ1 - RZ0, color: col });
-  for (const z of [RZ0, RZ1]) w.box({ x: (RX0 + RX1) / 2, z, y: 0.043, w: RX0 - RX1, h: 0.004, d: 0.035, color: 0xb9b5aa });
-  const laneText = (x, text, wd) => w.sign({
-    x, y: 0.05, z: (RZ0 + RZ1) / 2, w: 0.42, h: wd, flat: true, transparent: true, res: 160,
+  for (let i = 0; i <= 3; i++) w.box({ x: (RX0 + RX1) / 2, z: RZ0 + LANE * i, y: 0.043, w: RX0 - RX1, h: 0.004, d: 0.035, color: 0xb9b5aa });
+  const laneText = (x, z, text, wd, big) => w.sign({
+    x, y: 0.05, z, w: big ? 0.42 : 0.3, h: wd, flat: true, transparent: true, res: 160,
     draw: (c, W, H) => {
       c.clearRect(0, 0, W, H);
       c.save();
@@ -91,9 +94,10 @@ export function buildGym(api) {
       c.restore();
     },
   });
-  laneText(RX0 + 0.42, '새우빼기 경주 · 출발', 1.5);
-  laneText(RX1 - 0.42, '도착', 0.8);
-  w.interact.push({ x: RX0 + 0.9, z: (RZ0 + RZ1) / 2, r: 1.25, label: '새우빼기 경주 시작 · 6 m', short: '경주', when: (a) => !a.racing(), action: (a) => a.race() });
+  laneText(RX0 + 0.98, (RZ0 + RZ1) / 2, '엉덩이걷기 경주 · 출발', 2.1, true);
+  lanes.forEach((z, i) => laneText(RX0 - 0.3, z, String(i + 1), 0.3));
+  laneText(RX1 - 0.42, (RZ0 + RZ1) / 2, '도착', 0.8, true);
+  w.interact.push({ x: RX0 + 0.9, z: (RZ0 + RZ1) / 2, r: 1.45, label: '엉덩이걷기 경주 시작 · 6 m', short: '경주', when: (a) => !a.racing(), action: (a) => a.race() });
 
   const wallC = 0x1b1c1f;
   // (the north wall, with its folding doors, is built with the yard below)
@@ -562,7 +566,7 @@ export function buildGym(api) {
 
   // A small room: the master, one sparring partner, one member resting by the wall, the front desk.
   const master = new NPC(w, {
-    x: 0.9, z: -5.4, yaw: -Math.PI / 2, anim: 'arms', spar: true, label: '관장님',
+    x: 0.9, z: -5.4, yaw: -Math.PI / 2, anim: 'arms', spar: true, master: true, label: '관장님', // hard to beat (spar.js MASTER_WIN)
     lines: ['어서 오세요.', '좋지요. 매트로 오세요.', '내일 봅시다.'],
     look: gi({ belt: 'black', stripes: 2, gi: 'black', female: false, lite: false, hairStyle: 'flat' }),
   });

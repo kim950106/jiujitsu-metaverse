@@ -28,8 +28,10 @@ export const BRIDGE = { cycle: 1.15, reps: 3 };
 // Technical stand-up: sit, then between a and b (shares of the whole) rise on one hand and the
 // opposite foot while the other leg swings back, moving `dist` backwards.
 export const STANDUP = { dur: 2.3, a: 0.45, b: 0.82, dist: 0.4 };
-// One stroke of the shrimp race: quicker than the drill, and it carries the body `step` metres.
-export const RACE = { stroke: 0.4, a: 0.3, b: 0.85, step: 0.5 };
+// One step of the hip-walk race: quicker than the drill, and it carries the body `step` metres.
+export const RACE = { stroke: 0.36, a: 0.12, b: 0.88, step: 0.34 };
+// the quick shrimp of the race before it was a hip walk (still drawn for older pages)
+const SHRIMPF = { stroke: 0.4, a: 0.3, b: 0.85 };
 // Two-person technique, in seconds from the start: slap and bump, step in and grip, takedown,
 // move to the finishing hold, the struggle (both sides hammer their button until `judge`), the
 // tap, let go and stand, bow. A technique that is escaped from has its own later moments (Bout.T).
@@ -57,8 +59,8 @@ const KEYS = Object.keys(NEUTRAL);
 const ANIM_FACE = {
   stance: 'focus', guardTop: 'focus', guardBottom: 'focus', shrimp: 'focus',
   roll: 'wow', rollb: 'wow', scoot: 'focus', bow: 'calm', sit: 'calm', stretch: 'grin', coach: 'grin', shaka: 'grin',
-  bridge: 'focus', standup: 'focus', shrimpf: 'focus',
-  sideTop: 'focus', sideBottom: 'focus', mountTop: 'focus', mountBottom: 'wow', win: 'grin',
+  bridge: 'focus', standup: 'focus', shrimpf: 'focus', scootf: 'focus',
+  sideTop: 'focus', sideBottom: 'focus', mountTop: 'focus', mountBottom: 'wow', backTop: 'focus', backBottom: 'wow', win: 'grin', greet: 'grin',
 };
 
 let blobMat = null;
@@ -488,6 +490,57 @@ const POSES = {
     P.aLx = P.aRx = -1.5;
     P.fL = P.fR = -0.6;
   },
+  // Back control: both sit, the one behind with the legs hooked in front and one arm over the
+  // shoulder, one under the arm (a seat belt); the one in front holds the top arm off the neck.
+  backTop(c, P) {
+    const s = Math.sin(c.time * 1.9 + c.seed);
+    P.tiltX = -0.16;
+    P.drop = SIT - H;
+    P.sway = -0.12;
+    P.spine = 0.24 + 0.03 * s;
+    P.head = 0.1;
+    P.headZ = -0.42;
+    P.lLx = P.lRx = -1.45;
+    P.lLz = 0.5;
+    P.lRz = -0.5;
+    P.sL = P.sR = 0.45;
+    P.lLs = P.lRs = 1.2;
+    P.aLx = -1.62;
+    P.aLz = -0.36;
+    P.fL = -1.05;
+    P.fLy = -1.5;
+    P.aLs = 1.7;
+    P.aRx = -0.95;
+    P.aRz = -0.6;
+    P.fR = -1.3;
+    P.fRy = -0.2;
+    P.aRs = 1.3;
+  },
+  backBottom(c, P) {
+    const s = Math.sin(c.time * 2.4 + c.seed);
+    P.tiltX = -0.22;
+    P.drop = SIT - H;
+    P.spine = 0.12 + 0.04 * s;
+    P.head = -0.05;
+    P.headZ = 0.12 * s;
+    P.lLx = -1.3;
+    P.lRx = -1.2;
+    P.sL = 0.5;
+    P.sR = 0.75;
+    P.lLz = 0.14;
+    P.lRz = -0.18;
+    P.aLx = -1.25;
+    P.aLz = 0.35;
+    P.fL = -1.7;
+    P.aRx = -1.2;
+    P.aRz = -0.25;
+    P.fR = -1.75;
+    P.twist = 0.06 * s;
+  },
+  // The slap and bump before sparring, in step with the one opposite (both start it together).
+  greet(c, P) {
+    greetPose(P, Math.min(c.animT, TECH.greet - 1e-4));
+  },
   // The winner's hand goes up.
   win(c, P) {
     const b = Math.abs(Math.sin(c.time * 5));
@@ -501,20 +554,20 @@ const POSES = {
   },
   // One quick shrimp for the race, then lying ready for the next. c.strokeN picks the side.
   shrimpf(c, P) {
-    const u = Math.min(1, c.animT / RACE.stroke);
+    const u = Math.min(1, c.animT / SHRIMPF.stroke);
     const side = (c.strokeN || 0) % 2 === 0 ? 1 : -1;
     let fold = 0;
     let tw = 0;
     let push = 0;
-    if (u < RACE.a) {
-      fold = ease(u / RACE.a);
+    if (u < SHRIMPF.a) {
+      fold = ease(u / SHRIMPF.a);
       tw = fold;
-    } else if (u < RACE.b) {
-      push = ease((u - RACE.a) / (RACE.b - RACE.a));
+    } else if (u < SHRIMPF.b) {
+      push = ease((u - SHRIMPF.a) / (SHRIMPF.b - SHRIMPF.a));
       fold = 1 - push;
       tw = 1;
     } else if (u < 1) {
-      tw = 1 - ease((u - RACE.b) / (1 - RACE.b));
+      tw = 1 - ease((u - SHRIMPF.b) / (1 - SHRIMPF.b));
       push = tw;
     }
     P.tiltX = -Math.PI / 2;
@@ -793,6 +846,30 @@ const POSES = {
     P.aLx = (-0.5 - side * 0.5 * sw) * sit;
     P.aRx = (-0.5 + side * 0.5 * sw) * sit;
     P.fL = P.fR = -1.3 * sit;
+    P.aLz = 0.3;
+    P.aRz = -0.3;
+  },
+  // One hip step for the race, then sitting ready for the next. c.strokeN picks the hip.
+  scootf(c, P) {
+    const u = Math.min(1, c.animT / RACE.stroke);
+    const side = (c.strokeN || 0) % 2 === 0 ? 1 : -1;
+    const sw = Math.sin(clamp((u - RACE.a) / (RACE.b - RACE.a), 0, 1) * Math.PI); // 0 .. 1 .. 0 over the step
+    P.drop = SIT - H;
+    P.tiltX = -0.18;
+    P.spine = 0.3 + 0.06 * sw;
+    P.head = 0.05;
+    P.twist = side * 0.5 * sw;
+    P.sway = -side * 0.12 * sw;
+    P.bob = 0.04 * sw;
+    P.lLx = -1.42 - (side > 0 ? 0.16 : -0.06) * sw;
+    P.lRx = -1.42 - (side < 0 ? 0.16 : -0.06) * sw;
+    P.sL = 0.34 + (side > 0 ? -0.22 : 0.32) * sw;
+    P.sR = 0.34 + (side < 0 ? -0.22 : 0.32) * sw;
+    P.lLz = 0.1;
+    P.lRz = -0.1;
+    P.aLx = -0.5 - side * 0.62 * sw;
+    P.aRx = -0.5 + side * 0.62 * sw;
+    P.fL = P.fR = -1.3;
     P.aLz = 0.3;
     P.aRz = -0.3;
   },
@@ -1371,7 +1448,7 @@ export class Character {
     if (this.anim === 'roll' || this.anim === 'rollb') this.C.tiltX = 0;
     this.anim = POSES[name] ? name : 'loco';
     this.animT = 0;
-    if (name === 'shrimpf') this.strokeN = (this.strokeN || 0) + 1;
+    if (name === 'shrimpf' || name === 'scootf') this.strokeN = (this.strokeN || 0) + 1;
   }
 
   update(dt, speed = 0) {

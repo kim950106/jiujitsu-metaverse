@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0f1114">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="띠를 매고 도장과 대회장을 걸어 다니는 주짓수 메타버스. 개인 취미로 만든 비공식 팬 프로젝트입니다.">
@@ -49,15 +49,19 @@ html.rot.flip {
   --sat: env(safe-area-inset-left, 0px); --sar: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-right, 0px); --sal: env(safe-area-inset-bottom, 0px);
 }
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* the page is never zoomed by the browser (pinch or double tap): one finger scrolls a list, and
+   nearer and further is the game's own + and - (nozoom.js does the rest) */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: pan-x pan-y; }
 html { height: 100%; overscroll-behavior: none; }
 body {
   height: 100%; height: 100dvh; margin: 0;
   background: var(--ink); color: var(--mat); font-family: var(--body); font-size: 15px; line-height: 1.5;
-  overflow: hidden; overscroll-behavior: none; touch-action: manipulation; -webkit-font-smoothing: antialiased;
+  overflow: hidden; overscroll-behavior: none; touch-action: pan-x pan-y; -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
 }
 button, input { font: inherit; color: inherit; }
+/* a phone zooms into a field typed in with small letters: these are big enough not to */
+@media (pointer: coarse) { input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select { font-size: max(16px, 1em); } }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 :focus-visible { outline: 2px solid var(--led); outline-offset: 3px; }
@@ -276,6 +280,7 @@ legend .n { font-family: var(--body); font-size: 12px; font-weight: 700; color: 
 .mt-side small { font-size: 10.5px; font-weight: 700; color: var(--muted); max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mt-side.me { background: #3a2c12; }
 .mt-side.me b { color: var(--led); }
+.matchbar[data-top="me"] .mt-side.me b::after, .matchbar[data-top="them"] .mt-side.them b::after { content: '▲'; font-size: 10px; vertical-align: 8px; margin-left: 2px; }
 .mt-mid { padding: 4px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; white-space: nowrap; }
 .mt-mid i { font-style: normal; font-family: var(--display); font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .mt-mid em { font-style: normal; font-weight: 700; font-size: 12.5px; color: var(--muted); }
@@ -288,6 +293,7 @@ legend .n { font-family: var(--body); font-size: 12px; font-weight: 700; color: 
 
 /* the technique that goes on if the throw is won */
 .techs { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.techs-label { align-self: center; font-size: 11.5px; font-weight: 700; color: var(--muted); margin-right: 2px; }
 .techs button { padding: 3px 7px; background: var(--ink); border: 1px solid var(--line); border-radius: 999px; font-weight: 700; font-size: 12px; line-height: 1.35; letter-spacing: -.02em; color: var(--muted); touch-action: none; }
 .techs button[aria-pressed="true"] { border-color: var(--led); background: #3a2c12; color: var(--led); }
 #rps-cycle { display: none; }
@@ -335,6 +341,8 @@ legend .n { font-family: var(--body); font-size: 12px; font-weight: 700; color: 
 .rps.match .mini { align-self: auto; flex: none; padding: 3px 9px; font-size: 12px; line-height: 1.3; }
 
 /* ---------- dialogs ---------- */
+.inapp { position: fixed; inset: 0; z-index: 40; background: rgba(8, 9, 11, .94); display: grid; place-items: center; padding: max(16px, var(--sat)) max(16px, var(--sar)) max(16px, var(--sab)) max(16px, var(--sal)); }
+.inapp .card { width: min(460px, 100%); }
 .modal { position: absolute; inset: 0; z-index: 8; background: rgba(8, 9, 11, .68); display: grid; place-items: center; padding: max(12px, var(--sat)) max(12px, var(--sar)) max(12px, var(--sab)) max(12px, var(--sal)); }
 .card {
   background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--led); border-radius: 8px;
@@ -652,7 +660,8 @@ html.rot .card { padding: 14px; gap: 10px; }
 
   <div id="rps" class="rps" role="dialog" aria-labelledby="rps-title" hidden>
     <p class="rps-title" id="rps-title"></p>
-    <div class="techs" id="rps-techs" role="group" aria-label="이기면 걸 기술">
+    <div class="techs" id="rps-techs" role="group" aria-label="마지막 판을 이기면 걸 마무리 기술">
+      <span class="techs-label" aria-hidden="true">마무리</span>
       <button type="button" data-tech="ankle" aria-pressed="false">앵클락<kbd>Q</kbd></button>
       <button type="button" data-tech="arm" aria-pressed="false">암바<kbd>W</kbd></button>
       <button type="button" data-tech="guil" aria-pressed="false">길로틴<kbd>E</kbd></button>
@@ -670,7 +679,7 @@ html.rot .card { padding: 14px; gap: 10px; }
     <div class="tbar" id="rps-barwrap" aria-hidden="true"><i id="rps-bar"></i></div>
     <div class="rps-foot">
       <p class="rps-status" id="rps-status" aria-live="polite"></p>
-      <button type="button" class="mini cycle" id="rps-cycle" aria-label="이기면 걸 기술 바꾸기"></button>
+      <button type="button" class="mini cycle" id="rps-cycle" aria-label="마무리 기술 바꾸기"></button>
       <button type="button" class="mini" id="rps-cancel">그만두기</button>
     </div>
   </div>
@@ -924,7 +933,7 @@ html.rot .card { padding: 14px; gap: 10px; }
     <dl class="keys">
       <dt>안드로이드</dt><dd>크롬이나 삼성 인터넷의 메뉴(⋮ 또는 ≡)에서 ‘홈 화면에 추가’ 또는 ‘앱 설치’.</dd>
       <dt>아이폰</dt><dd>사파리 아래쪽의 공유 버튼에서 ‘홈 화면에 추가’.</dd>
-      <dt>카카오톡에서 열었다면</dt><dd>먼저 화면의 메뉴에서 ‘다른 브라우저로 열기’를 고른 뒤, 그 브라우저에서 위와 같이 합니다.</dd>
+      <dt>카카오톡에서 열었다면</dt><dd>링크를 카카오톡·라인·인스타그램 같은 앱 안에서 열면 휴대폰의 기본 브라우저로 저절로 넘어갑니다. 아이폰의 다른 앱에서는 화면의 메뉴에서 ‘Safari로 열기’를 고른 뒤, 그 브라우저에서 위와 같이 합니다.</dd>
     </dl>
     <p class="sub">홈 화면에서 지우면 그대로 없어집니다. 기기에 따라 띠와 이름, 최고 기록이 브라우저와 따로 저장되어, 처음 열 때 다시 고르게 될 수 있습니다.</p>
     <button type="button" class="close" data-close>닫기</button>
@@ -936,14 +945,15 @@ html.rot .card { padding: 14px; gap: 10px; }
     <h2 id="t-help">조작법</h2>
     <dl class="keys">
       <dt>이동</dt><dd>왼쪽 아래 스틱. 끝까지 밀면 달립니다. 키보드는 방향키, Shift로 달리기.</dd>
-      <dt>시점</dt><dd>오른쪽 위 ⟲ ⟳ ＋ － 버튼, 또는 화면을 끌거나 두 손가락으로 벌리고 오므립니다. 기술이 시작되면 시점이 잘 보이는 쪽으로 알아서 돌고, 직접 돌리면 그대로 둡니다.</dd>
-      <dt>큰 버튼</dt><dd>평소에는 인사. 관장님이나 안내판 앞에서는 그 자리에서 할 수 있는 일로 바뀝니다. 새우빼기 경주에서는 연타하는 버튼입니다. 키보드 Space 또는 Enter.</dd>
-      <dt>스파링</dt><dd>매트 위에서 상대에게 붙으면 ‘스파링’ 버튼이 켜집니다. 도장 식구(NPC)는 바로 시작하고, 사람은 상대가 수락해야 시작합니다. 한 판마다 가위바위보를 해서 이긴 쪽이 고른 기술을 걸고 그 판을 가져갑니다. 비기면 다시 냅니다. 키보드 F, 손은 1 2 3.</dd>
+      <dt>시점</dt><dd>오른쪽 위 ⟲ ⟳ 버튼(누르고 있으면 계속 돕니다)이나 화면을 한 손가락으로 끌어 돌립니다. 가까이·멀리는 ＋ － 버튼으로만 합니다(누르고 있으면 계속, PC는 마우스 휠도). 두 손가락으로는 화면도 시점도 확대되지 않습니다. 스파링과 기술이 시작되면 시점이 잘 보이는 쪽으로 알아서 돌고, 직접 돌리면 그대로 둡니다.</dd>
+      <dt>큰 버튼</dt><dd>평소에는 인사. 관장님이나 안내판 앞에서는 그 자리에서 할 수 있는 일로 바뀝니다. 엉덩이걷기 경주에서는 연타하는 버튼입니다. 키보드 Space 또는 Enter.</dd>
+      <dt>스파링</dt><dd>매트 위에서 상대에게 붙으면 ‘스파링’ 버튼이 켜집니다. 도장 식구(NPC)는 바로 시작하고, 사람은 상대가 수락해야 시작합니다. 인사하고 손바닥을 마주친 뒤 한 판마다 가위바위보를 해서, 이긴 쪽이 그 판을 가져가며 포지션을 잡습니다: 서 있을 때는 테이크다운, 위에 있으면 가드 패스 → 마운트 → 백 테이크, 밑에 깔려 있으면 스윕으로 뒤집습니다. 승부를 가르는 마지막 판을 이긴 쪽만 서브미션을 걸고, 상대가 탭하면 끝납니다. 비기면 다시 냅니다. 키보드 F, 손은 1 2 3.</dd>
       <dt>판 수</dt><dd>흰 띠 5판 3선승, 파란 띠 6판 4선승, 보라 띠 7판 4선승, 갈색 띠 8판 5선승, 검은 띠 10판 6선승. 띠가 다르면 낮은 띠의 규칙을 따릅니다. 판을 다 채우고 동점이면 무승부입니다.</dd>
-      <dt>기술</dt><dd>기술은 스파링 안에서만 걸 수 있습니다. 가위바위보 위의 줄에서 앵클락, 암바, 길로틴, 오모플라타, 백초크, 트라이앵글, 기무라 가운데 이겼을 때 걸 기술을 골라 둡니다. 키보드 Q W E R A S D.</dd>
+      <dt>관장님</dt><dd>관장님과의 스파링은 쉽게 이길 수 없습니다. 이길 확률은 흰 띠 0%, 파란 띠 1%, 보라 띠 5%, 갈색 띠 10%, 검은 띠 40%입니다.</dd>
+      <dt>기술</dt><dd>기술(서브미션)은 스파링 안에서만, 승부를 가르는 마지막 판에서 걸립니다. 가위바위보 위의 ‘마무리’ 줄(폰은 ‘마무리 ·’ 버튼)에서 앵클락, 암바, 길로틴, 오모플라타, 백초크, 트라이앵글, 기무라 가운데 하나를 골라 둡니다. 키보드 Q W E R A S D.</dd>
       <dt>기본 동작</dt><dd>‘동작’ 버튼에 모여 있습니다. 브릿지 Q, 엉덩이 걷기 W, 스탠드업 E, 정좌 R, 인사 A, 앞구르기 S, 뒷구르기 D, 새우빼기 T. 정좌와 인사 말고는 매트 위에서만 됩니다.</dd>
       <dt>말</dt><dd>‘말’ 버튼에서 한마디를 고르면 머리 위에 말풍선이 뜹니다. 샤카와 단체 사진도 여기 있습니다. 키보드 Z X C, 샤카 V, 사진 P.</dd>
-      <dt>경주</dt><dd>도장 매트 남쪽의 출발선에서 큰 버튼을 누르면 새우빼기 경주가 시작됩니다. 출발 신호 뒤에 누를 때마다 새우빼기 한 번, 빠르게 연타할수록 빨라집니다. 출발선 곁에 서 있던 사람은 함께 달리고, 스틱을 밀면 그만둡니다.</dd>
+      <dt>경주</dt><dd>도장 매트 남쪽의 출발선에서 큰 버튼을 누르면 엉덩이걷기 경주가 시작됩니다. 출발 신호 뒤에 누를 때마다 엉덩이걷기 한 걸음, 빠르게 연타할수록 빨라집니다. 출발선 곁에 서 있던 사람은 옆 레인에서 함께 달리고(레인 3개), 서로의 기록과 등수가 나옵니다. 스틱을 밀면 그만둡니다.</dd>
       <dt>단체 사진</dt><dd>메뉴나 ‘말’ 목록의 단체 사진을 누르면 셋을 센 뒤 지금 화면이 버튼 없이 사진으로 찍힙니다. 같은 곳에 있는 사람들에게도 찍는다고 알려 줍니다. 사진은 이 기기에만 있고, 저장하거나 보내기 전에는 어디로도 나가지 않습니다.</dd>
       <dt>게시판</dt><dd>도장 벽의 게시판이나 메뉴의 ‘게시판’에서 손가락으로 그려 한마디를 남깁니다. 남긴 날짜와 이름, 띠, 그랄이 함께 적힙니다.</dd>
       <dt>지도자석</dt><dd>대회장 매트 옆 COACH 자리는 검은 띠 1명만 앉을 수 있습니다.</dd>
@@ -954,6 +964,20 @@ html.rot .card { padding: 14px; gap: 10px; }
   </div>
 </div>
 
+</div>
+
+<!-- opened inside a messenger's own browser: handed over to the phone's own (inapp.js, hosted copy only) -->
+<div id="inapp" class="inapp" role="dialog" aria-modal="true" aria-labelledby="inapp-title" hidden>
+  <div class="card">
+    <h2 id="inapp-title"></h2>
+    <p id="inapp-text"></p>
+    <p class="sub" id="inapp-copied" aria-live="polite"></p>
+    <div class="rowbtn">
+      <button type="button" class="mini" id="inapp-copy">주소 복사</button>
+      <button type="button" class="mini" id="inapp-stay">여기서 계속하기</button>
+      <button type="button" class="send" id="inapp-open"></button>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>

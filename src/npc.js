@@ -103,8 +103,9 @@ export class NPC {
     if (!this.busy) return;
     this.busy = false;
     this.back = true;
-    this.char.play('loco'); // whatever it was held in (a stance, a technique, a match position)
+    this.char.play('loco'); // whatever it was held in (a stance, a technique, a position)
     this.char.tech = null;
+    this.char.rate = 20;
     this.anim = 'loco';
   }
 

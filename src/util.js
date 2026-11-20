@@ -32,6 +32,14 @@ export function withName(name) {
   return `${name}${(c - 0xac00) % 28 ? '과' : '와'}`;
 }
 
+// "by <word>" in Korean: 로 after a syllable that ends open or in ㄹ, 으로 after any other closed one.
+export function withRo(word) {
+  const c = word ? word.charCodeAt(word.length - 1) : 0;
+  if (c < 0xac00 || c > 0xd7a3) return `${word}(으)로`;
+  const jong = (c - 0xac00) % 28;
+  return `${word}${jong && jong !== 8 ? '으로' : '로'}`;
+}
+
 // Belt data. minutes = adult match length at that belt.
 export const BELTS = {
   white: { name: '흰 띠', color: 0xe9e6dc, css: '#e9e6dc', bar: 0x141414, minutes: 5 },

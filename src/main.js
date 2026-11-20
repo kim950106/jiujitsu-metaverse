@@ -1,5 +1,8 @@
 /* global window, document */
 import { initUI } from './ui.js';
+import { lockZoom } from './nozoom.js';
+import { leaveInApp } from './inapp.js';
+import { hostKind } from './relay.js';
 
 function start(data) {
   if (!window.THREE) {
@@ -15,6 +18,11 @@ function start(data) {
   initUI(data || {});
 }
 
+lockZoom();
 const hot = window.claude && window.claude.hot;
-if (hot && hot.ready) hot.ready(start);
-else start((hot && hot.data) || {});
+const go = () => {
+  if (hot && hot.ready) hot.ready(start);
+  else start((hot && hot.data) || {});
+};
+// the hosted copy, opened inside KakaoTalk or another app's browser, goes to the phone's own browser
+if (!(hostKind() === 'web' && leaveInApp(go))) go();

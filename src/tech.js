@@ -2,9 +2,11 @@
 // shared line so the same sequence looks identical for the player, an NPC partner, or another
 // person's avatar.
 //
-// A technique always ends in a tap: it is put on by whoever won the round of sparring (spar.js).
+// A technique always ends in a tap: it is put on by whoever wins the round that wins a series of
+// sparring (spar.js). By then the two are usually down in a position, and the technique starts
+// from there ("ground"): the bodies go from where they are straight into the finish.
 import { TECH } from './character.js';
-import { clamp, lerp, ease } from './util.js';
+import { clamp, lerp, ease, angDiff } from './util.js';
 
 // Every technique that can be applied, in the order the buttons show them.
 export const KINDS = { ankle: '앵클락', arm: '암바', guil: '길로틴', omo: '오모플라타', rnc: '백초크', tri: '트라이앵글', kim: '기무라' };
@@ -26,6 +28,13 @@ export function rpsResult(a, b) {
 
 export function randomPick(rnd = Math.random) {
   return 'srp'[Math.min(2, (rnd() * 3) | 0)];
+}
+
+// The other side's hand that gives `result` to the one who threw `mine` (1 a win, -1 a loss, 0 the same).
+export function handFor(mine, result) {
+  if (result > 0) return BEATS[mine];
+  if (result < 0) return Object.keys(BEATS).find((k) => BEATS[k] === mine);
+  return mine;
 }
 
 const PI = Math.PI;
@@ -68,8 +77,9 @@ export class Bout {
     this.ox = o.ox;
     this.oz = o.oz;
     this.yaw = o.yaw; // direction the attacker faces
-    this.t = o.t || 0;
-    this.skip = this.t >= TECH.greet; // started without the slap and bump (a later round of sparring)
+    this.ground = !!o.ground; // started from a position on the mat
+    this.t = this.ground ? Math.max(o.t || 0, TECH.down) : o.t || 0;
+    this.skip = this.t >= TECH.greet; // started without the slap and bump
     this.done = false;
     this.names = o.names || ['', ''];
     this.T = TECH; // the moments of the technique
@@ -78,11 +88,16 @@ export class Bout {
     const uz = Math.cos(this.yaw);
     const along = (p) => (p.x - this.ox) * ux + (p.z - this.oz) * uz;
     const side = (p) => (p.x - this.ox) * uz - (p.z - this.oz) * ux;
-    this.a0 = { u: this.skip ? along(this.a) : Math.min(along(this.a), -0.3), s: side(this.a) };
-    this.d0 = { u: this.skip ? along(this.d) : Math.max(along(this.d), 0.3), s: side(this.d) };
+    // from the ground each body also starts turned the way it lies, and takes the short way round
+    // to the turn of the finish
+    const H = MOVES[this.kind].hold;
+    const turn = (act, face, to) => (this.ground ? to + angDiff(to, angDiff(face, act.yaw)) : 0);
+    this.a0 = { u: this.skip ? along(this.a) : Math.min(along(this.a), -0.3), s: side(this.a), r: turn(this.a, this.yaw, H.a[2]) };
+    this.d0 = { u: this.skip ? along(this.d) : Math.max(along(this.d), 0.3), s: side(this.d), r: turn(this.d, this.yaw + PI, H.d[2]) };
     for (const [act, role] of [[this.a, 'a'], [this.d, 'd']]) {
       act.char.tech = { kind: this.kind, role, t: this.t, T: this.T };
       act.char.play('tech');
+      if (this.ground) act.char.rate = 9; // ease out of the position they were in
     }
     this.update(0);
   }
@@ -106,7 +121,7 @@ export class Bout {
     const seg = (a, b) => ease(clamp((t - a) / (b - a), 0, 1));
     const grip = { a: [-0.3, 0, 0], d: [0.3, 0, 0] };
     const apart = { a: [-0.45, 0, 0], d: [0.45, 0, 0] };
-    const start = { a: [this.a0.u, this.a0.s, 0], d: [this.d0.u, this.d0.s, 0] };
+    const start = { a: [this.a0.u, this.a0.s, this.a0.r], d: [this.d0.u, this.d0.s, this.d0.r] };
     let from;
     let to;
     let v;
@@ -123,9 +138,14 @@ export class Bout {
       to = M.mid;
       v = seg(TECH.clinch, TECH.down);
     } else if (t < T.hold) {
-      from = M.mid;
+      from = this.ground ? start : M.mid;
       to = M.hold;
       v = seg(TECH.down, TECH.move);
+      if (this.ground && t >= TECH.move && !this.quick) {
+        this.quick = true; // in the hold: the squeeze and the tap are followed closely again
+        this.a.char.rate = 20;
+        this.d.char.rate = 20;
+      }
     } else {
       from = M.hold;
       to = apart;
@@ -145,6 +165,7 @@ export class Bout {
     for (const act of [this.a, this.d]) {
       if (act.char.anim === 'tech') act.char.play('loco');
       act.char.tech = null;
+      act.char.rate = 20;
     }
   }
 

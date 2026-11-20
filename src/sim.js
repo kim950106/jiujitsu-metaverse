@@ -3,7 +3,7 @@
 import { BELTS, turnToward } from './util.js';
 import { Character, SHRIMP, ROLL, ROLLB, SCOOT, BOW, TECH, GREET, SHAKA, BRIDGE, STANDUP } from './character.js';
 import { KINDS, SAYS, randomPick, isKind } from './tech.js';
-import { SparMixin, SPAR, ruleFor } from './spar.js';
+import { SparMixin, SPAR, ruleFor, posCode } from './spar.js';
 import { RaceMixin } from './race.js';
 
 const STEP = 0.72; // highest ledge the player can step onto
@@ -31,6 +31,7 @@ export class Sim {
     this.peers = () => []; // avatars of other people in this place (set by the network layer)
     this.myPeer = '';
     this.npcPick = () => randomPick();
+    this.rnd = Math.random; // what the master's sparring is settled with
     this.streak = 0; // sparring won in a row
     this.tech = 'arm'; // the technique put on when a round of sparring is won
     this.ask = null; // somebody is asking this player to spar: { id, av, name, rule, t }
@@ -337,7 +338,7 @@ export class Sim {
     const d = this.p.duel;
     if (!this.h.duel) return;
     const S = d ? this._sparInfo() : null;
-    const key = d ? `${d.id}|${d.phase}|${d.round}|${d.pick}|${d.phase === 'reveal' ? d.their : ''}|${this.tech}|${S ? `${S.me}|${S.them}|${S.n}|${S.end}` : ''}` : '';
+    const key = d ? `${d.id}|${d.phase}|${d.round}|${d.pick}|${d.phase === 'reveal' ? d.their : ''}|${this.tech}|${S ? `${S.me}|${S.them}|${S.n}|${S.end}|${S.pos}|${S.top}` : ''}` : '';
     if (key === this._duelKey) return;
     this._duelKey = key;
     if (!d) {
@@ -349,8 +350,8 @@ export class Sim {
       pick: d.pick, their: d.phase === 'reveal' ? d.their : null, result: d.result,
       left: d.phase === 'pick' ? Math.max(0, SPAR.pick - d.t) : d.phase === 'wait' ? Math.max(0, SPAR.wait - d.t) : 0,
       total: d.phase === 'wait' ? SPAR.wait : SPAR.pick,
-      tech: d.tk || this.tech, rule: d.S.text,
-      spar: S, // the rounds won on each side (null while still waiting for an answer)
+      tech: d.tk || this.tech, rule: d.S.text, step: d.phase === 'move' ? d.step : '', stepMine: d.stepBy === d.me,
+      spar: S, // the rounds won on each side and the position (null while still waiting for an answer)
     });
   }
 
@@ -499,6 +500,7 @@ export class Sim {
     if (!d) return;
     p.duel = null;
     p.pose = '';
+    this.char.rate = 20;
     if (d.tgt.av) d.tgt.av.ctl = null; // the other person's avatar goes back to its owner
     if (d.tgt.npc) d.tgt.npc.release();
     if (p.mode === 'duel') {
@@ -584,7 +586,7 @@ export class Sim {
     const p = this.p;
     const d = p.duel;
     const b = p.bout;
-    const anim = p.mode === 'sit' ? 'sit' : p.mode === 'seated' ? 'chair' : p.mode === 'action' ? p.act : p.mode === 'duel' ? p.pose || 'stance' : p.mode === 'bout' ? 'tech' : p.mode === 'race' ? 'shrimpf' : 'loco';
+    const anim = p.mode === 'sit' ? 'sit' : p.mode === 'seated' ? 'chair' : p.mode === 'action' ? p.act : p.mode === 'duel' ? p.pose || 'stance' : p.mode === 'bout' ? 'tech' : p.mode === 'race' ? 'scootf' : 'loco';
     const S = d ? d.S : null;
     const r = p.race;
     const out = p.raceOut && p.raceOut.until > this.t ? p.raceOut : null;
@@ -593,18 +595,19 @@ export class Sim {
       x: p.x, y: p.y, z: p.z, yaw: p.yaw, anim, actN: p.actN, seat: p.mode === 'seated' && p.seat ? p.seat.id || '' : '', medal: p.medal,
       say: p.say && p.say.until > this.t ? p.say.n * 8 + p.say.i + 1 : 0,
       // r: which throw this is; p, tk: my hand of it and the technique that goes with it; q, qk: the
-      // same for the throw before; sa, sb: rounds won; e: how the sparring ended
+      // same for the throw before; sa, sb: rounds won; ps: the position (spar.js posCode); e: how
+      // the sparring ended
       du: d ? {
         id: d.id, w: who(d.tgt), k: d.kind, r: d.round, p: d.pick, tk: d.pick ? d.tk : null, c: d.mine ? 1 : 0, ox: d.ox, oz: d.oz, yw: d.yaw,
         q: d.prev && d.prev.r === d.round - 1 ? d.prev.p : null, qk: d.prev && d.prev.r === d.round - 1 ? d.prev.tk : null,
-        sa: S.w.A, sb: S.w.B, e: S.end,
+        sa: S.w.A, sb: S.w.B, ps: posCode(S), e: S.end,
       } : null,
       rj: this.refuse && this.refuse.until > this.t ? this.refuse.id : null,
       // a shrimp race: f is 0 while racing, the time in hundredths once finished
       race: r && r.phase !== 'done' ? { id: r.id, f: 0 } : out ? { id: out.id, f: out.f } : null,
       photo: p.photo && p.photo.until > this.t ? p.photo.n : 0,
-      // s: started without the slap and bump (every round of sparring after the first)
-      bt: b ? { id: b.id, w: who(b.tgt), k: b.kind, r: b.iWin ? 'a' : 'd', ox: b.ox, oz: b.oz, yw: b.yaw, s: b.skip ? 1 : null } : null,
+      // s: started without the slap and bump; g: started from a position on the ground
+      bt: b ? { id: b.id, w: who(b.tgt), k: b.kind, r: b.iWin ? 'a' : 'd', ox: b.ox, oz: b.oz, yw: b.yaw, s: b.skip ? 1 : null, g: b.ground ? 1 : null } : null,
       streak: this.streak,
     };
   }

@@ -45,9 +45,10 @@ export class Game {
     this.logos = { gym: null, event: null };
     this.keys = Object.create(null);
     this.stick = { x: 0, y: 0, on: false };
-    this.touches = new Map(); // pointers dragging on the scene: one turns the camera, two pinch to zoom
-    this.pinch = 0;
+    this.touches = new Map(); // the pointer dragging on the scene, which turns the camera (one at a time)
     this.spin = 0; // camera turn buttons held: -1 left, 1 right
+    this.zoomDir = 0; // zoom buttons held: -1 nearer, 1 further
+    this.zoomT = 0;
     this.drag = { id: null, x: 0 };
     this.cam = { yaw: 0, pitch: 0.3, dist: 4.6, tgt: new THREE.Vector3() };
     this.view = { id: null, auto: false, off: null }; // the camera's own choice of angle for the technique in progress
@@ -233,10 +234,12 @@ export class Game {
     window.addEventListener('blur', () => {
       this.keys = Object.create(null);
       this.spin = 0;
+      this.zoomDir = 0;
     });
     document.addEventListener('visibilitychange', () => {
       this.keys = Object.create(null);
       this.spin = 0;
+      this.zoomDir = 0;
       this.last = performance.now();
     });
 
@@ -250,8 +253,9 @@ export class Game {
         this.drag.x = p.x;
         return;
       }
-      if (this.touches.size < 2) this.touches.set(e.pointerId, p);
-      this.pinch = 0;
+      // One finger turns the camera. A second finger on the scene does nothing: getting nearer or
+      // further is for the + and - buttons only, so two thumbs on the screen never zoom.
+      if (this.touches.size === 0) this.touches.set(e.pointerId, p);
     });
     cv.addEventListener('pointermove', (e) => {
       const p = point(e);
@@ -262,24 +266,15 @@ export class Game {
       }
       const t = this.touches.get(e.pointerId);
       if (!t) return;
-      if (this.touches.size === 1) {
-        this.view.auto = false; // the player is choosing the angle now
-        this.cam.yaw -= (p.x - t.x) * 0.006;
-        this.cam.pitch = clamp(this.cam.pitch + (p.y - t.y) * 0.004, -0.35, 1.25);
-      }
+      this.view.auto = false; // the player is choosing the angle now
+      this.cam.yaw -= (p.x - t.x) * 0.006;
+      this.cam.pitch = clamp(this.cam.pitch + (p.y - t.y) * 0.004, -0.35, 1.25);
       t.x = p.x;
       t.y = p.y;
-      if (this.touches.size === 2) {
-        const [a, b] = Array.from(this.touches.values());
-        const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (this.pinch > 0 && d > 0) this.cam.dist = clamp(this.cam.dist * (this.pinch / d), 1.6, 11);
-        this.pinch = d;
-      }
     });
     const up = (e) => {
       if (e.pointerId === this.drag.id) this.drag.id = null;
       this.touches.delete(e.pointerId);
-      this.pinch = 0;
     };
     cv.addEventListener('pointerup', up);
     cv.addEventListener('pointercancel', up);
@@ -350,7 +345,7 @@ export class Game {
   main() {
     if (this.mode !== 'play') return;
     if (this.sim.p.race) {
-      this.sim.stroke(); // and in a shrimp race, every press is one shrimp
+      this.sim.stroke(); // and in a race, every press is one step of the hip walk
       return;
     }
     if (this.sim.busy) return;
@@ -366,6 +361,14 @@ export class Game {
 
   zoom(d) {
     this.cam.dist = clamp(this.cam.dist + d, 1.6, 11);
+  }
+
+  // A zoom button pressed (-1 nearer, 1 further) or let go (0): one step at once, then on and on
+  // while it is held.
+  zoomHold(dir) {
+    if (dir && dir !== this.zoomDir) this.zoom(dir * 0.8);
+    this.zoomDir = dir;
+    this.zoomT = 0;
   }
 
   _input() {
@@ -464,6 +467,7 @@ export class Game {
     this.cam.eff = this.cam.dist;
     this.touches.clear();
     this.spin = 0;
+    this.zoomDir = 0;
     this.resize();
     this._patch();
     this.sound.setAmbience(place);
@@ -501,6 +505,10 @@ export class Game {
     if (this.spin) {
       c.yaw += this.spin * 1.9 * dt;
       this.view.auto = false;
+    }
+    if (this.zoomDir) {
+      this.zoomT += dt;
+      if (this.zoomT > 0.3) c.dist = clamp(c.dist + this.zoomDir * 3.2 * dt, 1.6, 11);
     }
     // During a duel or a technique, look at the middle of the pair and stand back far enough to
     // keep both in frame, which on an upright phone is further than usual.
@@ -604,6 +612,24 @@ export class Game {
         const k2 = 1 - Math.exp(-2.8 * dt);
         c.yaw += angDiff(c.yaw, bout.yaw + this.view.off) * k2;
         c.pitch += (V.pitch - c.pitch) * k2;
+      }
+    } else if (p.duel && p.mode === 'duel' && p.duel.phase !== 'wait') {
+      // sparring: drift round to the side of the pair, where a position on the mat reads well
+      const dd = p.duel;
+      if (this.view.id !== dd.id) this.view = { id: dd.id, auto: true, off: null };
+      if (this.view.auto) {
+        if (this.view.off == null) {
+          let best = null;
+          for (const off of [Math.PI / 2, -Math.PI / 2]) {
+            const yaw = dd.yaw + off;
+            const score = Math.max(0, c.eff * 0.8 - probe(yaw, 0.5).d) * 4 + Math.abs(angDiff(c.yaw, yaw)) * 0.3;
+            if (!best || score < best.score) best = { off, score };
+          }
+          this.view.off = best.off;
+        }
+        const k2 = 1 - Math.exp(-2 * dt);
+        c.yaw += angDiff(c.yaw, dd.yaw + this.view.off) * k2;
+        c.pitch += (0.5 - c.pitch) * k2;
       }
     } else if (this.view.id != null) this.view = { id: null, auto: false, off: null };
     const pr = probe(c.yaw, c.pitch);
